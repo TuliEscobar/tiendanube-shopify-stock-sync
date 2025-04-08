@@ -1,13 +1,23 @@
+import os
 import shopify
 from typing import Dict, List, Optional
-from . import settings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class ShopifyAPI:
-    def __init__(self, shop_url: str, access_token: str):
-        self.shop_url = shop_url
-        self.access_token = access_token
-        shopify.ShopifyResource.set_site(f"https://{shop_url}/admin/api/2024-01")
-        shopify.ShopifyResource.set_headers({'X-Shopify-Access-Token': access_token})
+    def __init__(self):
+        """
+        Inicializa el cliente de Shopify usando las credenciales del archivo .env
+        """
+        self.shop_url = os.getenv('SHOPIFY_SHOP_URL')
+        self.access_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
+        
+        if not all([self.shop_url, self.access_token]):
+            raise ValueError("Faltan variables de entorno necesarias para Shopify")
+        
+        shopify.ShopifyResource.set_site(f"https://{self.shop_url}/admin/api/2024-01")
+        shopify.ShopifyResource.set_headers({'X-Shopify-Access-Token': self.access_token})
     
     def get_products(self, page: int = 1, limit: int = 50) -> List[Dict]:
         """Obtiene la lista de productos de la tienda."""

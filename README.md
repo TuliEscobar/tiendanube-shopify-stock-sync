@@ -4,17 +4,17 @@ Este proyecto proporciona una herramienta para sincronizar productos entre Tiend
 
 ## Características
 
-- Integración con la API de Tiendanube
+- Integración con múltiples tiendas de Tiendanube
 - Integración con la API de Shopify
 - Sincronización de productos
 - Gestión de variantes
 - Manejo de categorías
-- Operaciones en paralelo para Tiendanube
+- Soporte para múltiples tiendas en paralelo
 
 ## Requisitos
 
 - Python 3.8 o superior
-- Credenciales de API de Tiendanube
+- Credenciales de API de Tiendanube para cada tienda
 - Credenciales de API de Shopify
 
 ## Instalación
@@ -32,38 +32,56 @@ pip install -r requirements.txt
 
 3. Configurar las variables de entorno en un archivo `.env`:
 ```env
-TIENDANUBE_ACCESS_TOKEN=tu_token
-TIENDANUBE_STORE_ID=tu_store_id
-SHOPIFY_SHOP_URL=tu_tienda.myshopify.com
-SHOPIFY_ACCESS_TOKEN=tu_token
+# Configuración de Tiendanube
+TIENDANUBE_CREDENTIALS=[
+    {
+        "base_url": "https://api.tiendanube.com/v1/store_id_1",
+        "headers": {
+            "Authentication": "bearer your_token_1",
+            "User-Agent": "your_app_name"
+        }
+    },
+    {
+        "base_url": "https://api.tiendanube.com/v1/store_id_2",
+        "headers": {
+            "Authentication": "bearer your_token_2",
+            "User-Agent": ""
+        }
+    }
+]
 ```
 
 ## Uso
-
-El proyecto proporciona dos clases principales:
 
 ### TiendanubeAPI
 
 ```python
 from src.tiendanube import TiendanubeAPI
 
-# Inicializar cliente
-client = TiendanubeAPI(access_token="tu_token", store_id="tu_store_id")
+# Inicializar cliente para una tienda específica (1-4)
+client = TiendanubeAPI(store_number=1)
 
-# Obtener productos
-products = client.get_products()
-```
+# Obtener productos con variantes
+products = client.get_products(include_variants=True)
 
-### ShopifyAPI
+# Obtener un producto específico
+product = client.get_product(product_id=123, include_variants=True)
 
-```python
-from src.shopify import ShopifyAPI
+# Crear un nuevo producto
+new_product = client.create_product({
+    "name": {"es": "Nuevo Producto"},
+    "price": 100.00,
+    "stock": 10
+})
 
-# Inicializar cliente
-client = ShopifyAPI(shop_url="tu_tienda.myshopify.com", access_token="tu_token")
+# Actualizar un producto
+updated_product = client.update_product(123, {
+    "price": 150.00,
+    "stock": 5
+})
 
-# Obtener productos
-products = client.get_products()
+# Eliminar un producto
+client.delete_product(123)
 ```
 
 ## Estructura del Proyecto
@@ -73,8 +91,20 @@ products = client.get_products()
 ├── src/
 │   ├── tiendanube.py    # Cliente API de Tiendanube
 │   └── shopify.py       # Cliente API de Shopify
-├── requirements.txt     # Dependencias del proyecto
-└── README.md           # Documentación
+├── test_products.py     # Script de prueba para productos
+├── Utils.py            # Utilidades generales
+├── requirements.txt    # Dependencias del proyecto
+└── README.md          # Documentación
+```
+
+## Scripts de Utilidad
+
+### test_products.py
+
+Este script permite obtener y mostrar todos los productos de todas las tiendas configuradas:
+
+```python
+python test_products.py
 ```
 
 ## Contribuir
