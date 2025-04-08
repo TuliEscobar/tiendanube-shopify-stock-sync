@@ -6,9 +6,10 @@ Este proyecto proporciona una herramienta para sincronizar productos entre Tiend
 
 - Integración con múltiples tiendas de Tiendanube
 - Integración con la API de Shopify
-- Sincronización de productos
-- Gestión de variantes
-- Manejo de categorías
+- Sincronización bidireccional de productos
+- Gestión completa de variantes y opciones de productos
+- Sincronización de imágenes de productos
+- Manejo de inventario
 - Soporte para múltiples tiendas en paralelo
 
 ## Requisitos
@@ -30,7 +31,7 @@ cd tiendanube-sync
 pip install -r requirements.txt
 ```
 
-3. Configurar las variables de entorno en un archivo `.env`:
+3. Configurar las variables de entorno en `src/.env`:
 ```env
 # Configuración de Tiendanube
 TIENDANUBE_CREDENTIALS=[
@@ -40,25 +41,40 @@ TIENDANUBE_CREDENTIALS=[
             "Authentication": "bearer your_token_1",
             "User-Agent": "your_app_name"
         }
-    },
-    {
-        "base_url": "https://api.tiendanube.com/v1/store_id_2",
-        "headers": {
-            "Authentication": "bearer your_token_2",
-            "User-Agent": ""
-        }
     }
 ]
+
+# Configuración de Shopify
+SHOPIFY_SHOP_URL=your-store.myshopify.com
+SHOPIFY_ACCESS_TOKEN=your_access_token
 ```
 
 ## Uso
+
+### Sincronización de Productos
+
+```python
+from src.tiendanube import TiendanubeAPI
+from src.shopify import ShopifyAPI
+
+# Inicializar clientes
+tiendanube = TiendanubeAPI(store_number=1)
+shopify = ShopifyAPI()
+
+# Obtener productos de Tiendanube
+products = tiendanube.get_products(include_variants=True)
+
+# Sincronizar con Shopify
+for product in products:
+    shopify.create_product(product)
+```
 
 ### TiendanubeAPI
 
 ```python
 from src.tiendanube import TiendanubeAPI
 
-# Inicializar cliente para una tienda específica (1-4)
+# Inicializar cliente
 client = TiendanubeAPI(store_number=1)
 
 # Obtener productos con variantes
@@ -66,22 +82,28 @@ products = client.get_products(include_variants=True)
 
 # Obtener un producto específico
 product = client.get_product(product_id=123, include_variants=True)
+```
 
-# Crear un nuevo producto
-new_product = client.create_product({
+### ShopifyAPI
+
+```python
+from src.shopify import ShopifyAPI
+
+# Inicializar cliente
+client = ShopifyAPI()
+
+# Crear producto con variantes
+response = client.create_product({
     "name": {"es": "Nuevo Producto"},
-    "price": 100.00,
-    "stock": 10
+    "variants": [
+        {
+            "price": "100.00",
+            "stock": 10,
+            "values": [{"es": "Rojo"}]
+        }
+    ],
+    "attributes": [{"es": "Color"}]
 })
-
-# Actualizar un producto
-updated_product = client.update_product(123, {
-    "price": 150.00,
-    "stock": 5
-})
-
-# Eliminar un producto
-client.delete_product(123)
 ```
 
 ## Estructura del Proyecto
@@ -89,22 +111,29 @@ client.delete_product(123)
 ```
 .
 ├── src/
-│   ├── tiendanube.py    # Cliente API de Tiendanube
-│   └── shopify.py       # Cliente API de Shopify
-├── test_products.py     # Script de prueba para productos
-├── Utils.py            # Utilidades generales
-├── requirements.txt    # Dependencias del proyecto
-└── README.md          # Documentación
+│   ├── tiendanube.py      # Cliente API de Tiendanube
+│   ├── shopify.py         # Cliente API de Shopify
+│   ├── sync_products.py   # Módulo de sincronización
+│   └── .env              # Configuración de credenciales
+├── test_products.py       # Script de prueba para productos
+├── test_sync_products.py  # Script de prueba para sincronización
+├── test_shopify.py       # Script de prueba para Shopify
+├── requirements.txt      # Dependencias del proyecto
+└── README.md            # Documentación
 ```
 
 ## Scripts de Utilidad
 
 ### test_products.py
-
-Este script permite obtener y mostrar todos los productos de todas las tiendas configuradas:
-
-```python
+Muestra todos los productos y sus variantes de las tiendas configuradas:
+```bash
 python test_products.py
+```
+
+### test_sync_products.py
+Sincroniza productos de Tiendanube a Shopify:
+```bash
+python test_sync_products.py
 ```
 
 ## Contribuir
