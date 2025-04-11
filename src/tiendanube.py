@@ -23,6 +23,8 @@ class TiendanubeAPI:
         store_config = TIENDANUBE_CREDENTIALS[store_number - 1]
         
         self.api_url = store_config['base_url']
+        # Extraer el store_id de la URL base (último segmento)
+        self.store_id = self.api_url.split('/')[-1]
         self.headers = {
             **store_config['headers'],
             'Content-Type': 'application/json'
@@ -45,6 +47,10 @@ class TiendanubeAPI:
             response = requests.get(f"{self.api_url}/products", headers=self.headers, params=params)
             response.raise_for_status()
             products = response.json()
+            
+            # Agregar store_id a cada producto
+            for product in products:
+                product['store_id'] = self.store_id
             
             if include_variants:
                 # Obtener variantes para cada producto
@@ -73,6 +79,9 @@ class TiendanubeAPI:
             response = requests.get(f"{self.api_url}/products/{product_id}", headers=self.headers)
             response.raise_for_status()
             product = response.json()
+            
+            # Agregar store_id al producto
+            product['store_id'] = self.store_id
             
             if include_variants:
                 product['variants'] = self.get_product_variants(product_id)
@@ -113,7 +122,10 @@ class TiendanubeAPI:
         try:
             response = requests.post(f"{self.api_url}/products", headers=self.headers, json=product_data)
             response.raise_for_status()
-            return response.json()
+            product = response.json()
+            # Agregar store_id al producto creado
+            product['store_id'] = self.store_id
+            return product
         except requests.exceptions.RequestException as e:
             print(f"Error al crear el producto: {e}")
             raise
@@ -132,7 +144,10 @@ class TiendanubeAPI:
         try:
             response = requests.put(f"{self.api_url}/products/{product_id}", headers=self.headers, json=product_data)
             response.raise_for_status()
-            return response.json()
+            product = response.json()
+            # Agregar store_id al producto actualizado
+            product['store_id'] = self.store_id
+            return product
         except requests.exceptions.RequestException as e:
             print(f"Error al actualizar el producto {product_id}: {e}")
             raise

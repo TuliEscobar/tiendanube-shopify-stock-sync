@@ -37,17 +37,21 @@ class ShopifyAPI:
         Returns:
             Dict: Producto creado en Shopify
         """
+        # Obtener el ID de la tienda de Tiendanube de la URL base
+        tiendanube_store_id = tiendanube_product.get('store_id', 'unknown')
+        tiendanube_product_id = tiendanube_product.get('id')
+        
         # Convertir el formato de Tiendanube al formato de Shopify
         shopify_product = {
             "product": {
                 "title": tiendanube_product.get('name', {}).get('es', 'Sin nombre'),
                 "body_html": tiendanube_product.get('description', {}).get('es', ''),
-                "vendor": "Tiendanube Import",
                 "product_type": tiendanube_product.get('category', ''),
                 "status": "active" if tiendanube_product.get('published') else "draft",
                 "variants": [],
                 "options": [],
-                "images": []
+                "images": [],
+                "tags": f"{tiendanube_store_id}"
             }
         }
         
@@ -77,12 +81,17 @@ class ShopifyAPI:
             
             # Crear las variantes con sus opciones
             for variant in variants:
+                # Usar el ID de la variante de Tiendanube como SKU
+                variant_id = variant.get('id')
+                sku = f"{tiendanube_product_id}-{variant_id}"
+                
                 shopify_variant = {
                     "price": str(variant.get('price', 0)),
-                    "sku": variant.get('sku', ''),
+                    "sku": sku,
                     "inventory_quantity": variant.get('stock', 0),
                     "inventory_management": "shopify",
-                    "inventory_policy": "deny"
+                    "inventory_policy": "deny",
+                    "barcode": variant.get('barcode', '')  # Mantener el código de barras si existe
                 }
                 
                 # Agregar los valores de las opciones a la variante
@@ -95,10 +104,12 @@ class ShopifyAPI:
                 
                 shopify_product["product"]["variants"].append(shopify_variant)
         else:
-            # Si no hay variantes, crear una variante por defecto
+            # Si no hay variantes, usar el ID del producto como SKU
+            sku = str(tiendanube_product_id)
+            
             shopify_product["product"]["variants"].append({
                 "price": str(tiendanube_product.get('price', 0)),
-                "sku": tiendanube_product.get('sku', ''),
+                "sku": sku,
                 "inventory_quantity": tiendanube_product.get('stock', 0),
                 "inventory_management": "shopify",
                 "inventory_policy": "deny"
@@ -141,11 +152,15 @@ class ShopifyAPI:
         
         for product in tiendanube_products:
             try:
+                print(f"\nSincronizando producto de Tiendanube ID: {product.get('id')}")
                 shopify_product = self.create_product(product)
                 created_products.append(shopify_product)
-                print(f"Producto creado en Shopify: {shopify_product.get('product', {}).get('title')}")
+                print(f"✅ Producto creado en Shopify: {shopify_product.get('product', {}).get('title')}")
+                print(f"SKUs generados para las variantes:")
+                for variant in shopify_product.get('product', {}).get('variants', []):
+                    print(f"- SKU: {variant.get('sku')}")
             except Exception as e:
-                print(f"Error al sincronizar producto {product.get('id')}: {e}")
+                print(f"❌ Error al sincronizar producto {product.get('id')}: {e}")
                 continue
         
         return created_products
@@ -164,7 +179,6 @@ class ShopifyAPI:
             url = f"{self.api_url}/products.json"
             print(f"\nRealizando petición a Shopify:")
             print(f"URL: {url}")
-            print(f"Headers: {self.headers}")
             
             response = requests.get(
                 url,
