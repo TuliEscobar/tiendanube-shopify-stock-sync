@@ -28,3 +28,5 @@ var/
 .vscode/
 *.swp
 *.swo 
+
+blueprint.json
