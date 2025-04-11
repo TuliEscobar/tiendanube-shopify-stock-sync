@@ -1,34 +1,26 @@
 import os
+import json
 import requests
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
-load_dotenv()
-
-# Cargar configuración desde .env
-TIENDANUBE_CREDENTIALS = eval(os.getenv('TIENDANUBE_CREDENTIALS', '[]'))
-
 class TiendanubeAPI:
-    def __init__(self, store_number: int = 1):
-        """
-        Inicializa el cliente de Tiendanube para una tienda específica.
+    def __init__(self, credentials: Dict = None):
+        # Cargar variables de entorno
+        load_dotenv()
         
-        Args:
-            store_number (int): Número de la tienda (1-4, índice basado en 1)
-        """
-        if not 1 <= store_number <= len(TIENDANUBE_CREDENTIALS):
-            raise ValueError(f"Número de tienda inválido. Debe estar entre 1 y {len(TIENDANUBE_CREDENTIALS)}")
+        if credentials is None:
+            # Si no se proporcionan credenciales, usar la primera configuración del .env
+            tiendanube_credentials = json.loads(os.getenv('TIENDANUBE_CREDENTIALS', '[]').strip("'"))
+            if not tiendanube_credentials:
+                raise Exception("No se encontraron credenciales de Tiendanube")
+            credentials = tiendanube_credentials[0]
         
-        # Obtener credenciales de la tienda (restamos 1 porque el índice está basado en 0)
-        store_config = TIENDANUBE_CREDENTIALS[store_number - 1]
+        self.base_url = credentials['base_url']
+        self.headers = credentials['headers']
         
-        self.api_url = store_config['base_url']
-        # Extraer el store_id de la URL base (último segmento)
-        self.store_id = self.api_url.split('/')[-1]
-        self.headers = {
-            **store_config['headers'],
-            'Content-Type': 'application/json'
-        }
+        print(f"✅ API de Tiendanube inicializada")
+        print(f"🔹 URL Base: {self.base_url}")
 
     def get_products(self, page: int = 1, per_page: int = 50, include_variants: bool = True) -> List[Dict]:
         """
@@ -44,13 +36,13 @@ class TiendanubeAPI:
         """
         params = {'page': page, 'per_page': per_page}
         try:
-            response = requests.get(f"{self.api_url}/products", headers=self.headers, params=params)
+            response = requests.get(f"{self.base_url}/products", headers=self.headers, params=params)
             response.raise_for_status()
             products = response.json()
             
             # Agregar store_id a cada producto
             for product in products:
-                product['store_id'] = self.store_id
+                product['store_id'] = self.base_url.split('/')[-1]
             
             if include_variants:
                 # Obtener variantes para cada producto
@@ -60,7 +52,7 @@ class TiendanubeAPI:
             return products
         except requests.exceptions.RequestException as e:
             print(f"Error al obtener productos: {e}")
-            print(f"URL: {self.api_url}/products")
+            print(f"URL: {self.base_url}/products")
             print(f"Headers: {self.headers}")
             raise
 
@@ -76,12 +68,12 @@ class TiendanubeAPI:
             Dict: Detalles del producto y sus variantes
         """
         try:
-            response = requests.get(f"{self.api_url}/products/{product_id}", headers=self.headers)
+            response = requests.get(f"{self.base_url}/products/{product_id}", headers=self.headers)
             response.raise_for_status()
             product = response.json()
             
             # Agregar store_id al producto
-            product['store_id'] = self.store_id
+            product['store_id'] = self.base_url.split('/')[-1]
             
             if include_variants:
                 product['variants'] = self.get_product_variants(product_id)
@@ -102,7 +94,7 @@ class TiendanubeAPI:
             List[Dict]: Lista de variantes del producto
         """
         try:
-            response = requests.get(f"{self.api_url}/products/{product_id}/variants", headers=self.headers)
+            response = requests.get(f"{self.base_url}/products/{product_id}/variants", headers=self.headers)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -120,11 +112,11 @@ class TiendanubeAPI:
             Dict: Datos del producto creado
         """
         try:
-            response = requests.post(f"{self.api_url}/products", headers=self.headers, json=product_data)
+            response = requests.post(f"{self.base_url}/products", headers=self.headers, json=product_data)
             response.raise_for_status()
             product = response.json()
             # Agregar store_id al producto creado
-            product['store_id'] = self.store_id
+            product['store_id'] = self.base_url.split('/')[-1]
             return product
         except requests.exceptions.RequestException as e:
             print(f"Error al crear el producto: {e}")
@@ -142,11 +134,11 @@ class TiendanubeAPI:
             Dict: Datos del producto actualizado
         """
         try:
-            response = requests.put(f"{self.api_url}/products/{product_id}", headers=self.headers, json=product_data)
+            response = requests.put(f"{self.base_url}/products/{product_id}", headers=self.headers, json=product_data)
             response.raise_for_status()
             product = response.json()
             # Agregar store_id al producto actualizado
-            product['store_id'] = self.store_id
+            product['store_id'] = self.base_url.split('/')[-1]
             return product
         except requests.exceptions.RequestException as e:
             print(f"Error al actualizar el producto {product_id}: {e}")
@@ -160,7 +152,7 @@ class TiendanubeAPI:
             product_id (int): ID del producto a eliminar
         """
         try:
-            response = requests.delete(f"{self.api_url}/products/{product_id}", headers=self.headers)
+            response = requests.delete(f"{self.base_url}/products/{product_id}", headers=self.headers)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             print(f"Error al eliminar el producto {product_id}: {e}")

@@ -8,15 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class InventorySync:
-    def __init__(self):
+    def __init__(self, tiendanube_credentials: Dict):
         # Credenciales de Tiendanube
-        tiendanube_credentials = json.loads(os.getenv('TIENDANUBE_CREDENTIALS', '[]').strip("'"))
-        if not tiendanube_credentials:
-            raise Exception("No se encontraron credenciales de Tiendanube")
-        
-        self.tiendanube_credentials = tiendanube_credentials[0]  # Usar la primera configuración
-        self.tiendanube_base_url = self.tiendanube_credentials['base_url']
-        self.tiendanube_headers = self.tiendanube_credentials['headers']
+        self.tiendanube_base_url = tiendanube_credentials['base_url']
+        self.tiendanube_headers = tiendanube_credentials['headers']
         
         # Credenciales de Shopify
         self.shopify_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
@@ -231,6 +226,36 @@ class InventorySync:
         except Exception as e:
             print(f"\n❌ Error durante la sincronización: {str(e)}")
 
-if __name__ == '__main__':
-    sync = InventorySync()
-    sync.sync_inventory()
+def main():
+    # Obtener todas las credenciales de Tiendanube
+    tiendanube_credentials = json.loads(os.getenv('TIENDANUBE_CREDENTIALS', '[]').strip("'"))
+    if not tiendanube_credentials:
+        raise Exception("No se encontraron credenciales de Tiendanube")
+    
+    print(f"🔄 Procesando {len(tiendanube_credentials)} tiendas...")
+    
+    # Estadísticas globales
+    total_productos_actualizados = 0
+    total_productos_sin_cambios = 0
+    total_productos_no_encontrados = 0
+    
+    # Procesar cada tienda
+    for i, credentials in enumerate(tiendanube_credentials, 1):
+        try:
+            print(f"\n📦 Procesando tienda {i}/{len(tiendanube_credentials)}")
+            print(f"🔹 URL: {credentials['base_url']}")
+            
+            # Inicializar sincronizador con las credenciales actuales
+            sync = InventorySync(credentials)
+            
+            # Realizar la sincronización
+            sync.sync_inventory()
+            
+        except Exception as e:
+            print(f"❌ Error durante la sincronización de la tienda {i}: {e}")
+            continue
+    
+    print(f"\n🎉 Proceso completado!")
+
+if __name__ == "__main__":
+    main()
