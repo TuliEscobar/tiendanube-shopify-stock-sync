@@ -66,24 +66,36 @@ class InventorySync:
             print(f"Response: {response.text}")
             raise Exception(f'Error al obtener productos de Shopify: {response.text}')
 
-    def update_tiendanube_inventory(self, product_id: str, variant_id: str, quantity: int):
-        """Actualiza el inventario de un producto en Tiendanube"""
-        url = f'{self.tiendanube_base_url}/products/{product_id}/variants/{variant_id}'
-        data = {'stock': quantity}
-        response = requests.put(url, headers=self.tiendanube_headers, json=data)
-        if response.status_code != 200:
-            raise Exception(f'Error al actualizar inventario en Tiendanube: {response.text}')
+    def get_shopify_inventory_level(self, inventory_item_id: str, location_id: str) -> int:
+        """Obtiene el nivel de inventario actual de un producto en Shopify"""
+        url = f'{self.shopify_store_url}/admin/api/2024-01/inventory_levels.json'
+        params = {
+            'inventory_item_ids': inventory_item_id,
+            'location_ids': location_id
+        }
+        response = requests.get(url, headers=self.shopify_headers, params=params)
+        if response.status_code == 200:
+            levels = response.json().get('inventory_levels', [])
+            if levels:
+                return levels[0].get('available', 0)
+        return 0
 
-    def update_shopify_inventory(self, inventory_item_id: str, location_id: str, quantity: int):
-        """Actualiza el inventario de un producto en Shopify"""
+    def set_shopify_inventory(self, inventory_item_id: str, location_id: str, new_quantity: int, current_quantity: int):
+        """Establece el inventario de un producto en Shopify a un valor específico"""
+        # Solo actualizar si hay diferencia en el stock
+        if current_quantity == new_quantity:
+            print(f"ℹ️ El stock ya está actualizado ({current_quantity}), no se requieren cambios")
+            return True
+
         url = f'{self.shopify_store_url}/admin/api/2024-01/inventory_levels/set.json'
         data = {
             'inventory_item_id': inventory_item_id,
             'location_id': location_id,
-            'available': quantity
+            'available': new_quantity
         }
         print(f"\n🔄 Actualizando inventario en Shopify:")
-        print(f"URL: {url}")
+        print(f"Stock actual: {current_quantity}")
+        print(f"Nuevo stock: {new_quantity}")
         print(f"Datos: {json.dumps(data, indent=2)}")
         
         response = requests.post(url, headers=self.shopify_headers, json=data)
@@ -93,6 +105,7 @@ class InventorySync:
             print(f"Response: {response.text}")
             raise Exception(f'Error al actualizar inventario en Shopify: {response.text}')
         print("✅ Inventario actualizado correctamente en Shopify")
+        return True
 
     def get_shopify_locations(self) -> List[Dict]:
         """Obtiene todas las ubicaciones de Shopify"""
@@ -102,6 +115,9 @@ class InventorySync:
         if response.status_code == 200:
             locations = response.json()['locations']
             print(f"✅ Se encontraron {len(locations)} ubicaciones en Shopify")
+            # Mostrar todas las ubicaciones disponibles
+            for loc in locations:
+                print(f"   - {loc['name']} (ID: {loc['id']})")
             return locations
         else:
             print(f"❌ Error al obtener ubicaciones de Shopify:")
@@ -122,8 +138,14 @@ class InventorySync:
             locations = self.get_shopify_locations()
             if not locations:
                 raise Exception("No se encontraron ubicaciones en Shopify")
-            main_location_id = locations[0]['id']
-            print(f"✅ Usando ubicación principal de Shopify: {main_location_id}")
+            
+            # Buscar específicamente la ubicación "Shop location"
+            shop_location = next((loc for loc in locations if loc['name'] == 'Shop location'), None)
+            if not shop_location:
+                raise Exception("No se encontró la ubicación 'Shop location' en Shopify")
+            
+            shop_location_id = shop_location['id']
+            print(f"✅ Usando ubicación en Shopify: Shop location (ID: {shop_location_id})")
 
             # Crear mapeo de SKUs de Shopify para facilitar la búsqueda
             shopify_sku_map = {}
@@ -131,35 +153,79 @@ class InventorySync:
                 for variant in product.get('variants', []):
                     if variant.get('sku'):
                         shopify_sku_map[variant['sku']] = {
-                            'inventory_item_id': variant['inventory_item_id']
+                            'inventory_item_id': variant['inventory_item_id'],
+                            'product_id': product['id'],
+                            'variant_id': variant['id'],
+                            'current_stock': self.get_shopify_inventory_level(variant['inventory_item_id'], shop_location_id)
                         }
-            print(f"✅ Se encontraron {len(shopify_sku_map)} SKUs únicos en Shopify")
+            
+            print(f"✅ Se encontraron {len(shopify_sku_map)} productos con SKU en Shopify")
+            print("SKUs disponibles en Shopify:", list(shopify_sku_map.keys()))
 
             # Actualizar inventario de Shopify basado en Tiendanube
             productos_actualizados = 0
             productos_no_encontrados = 0
+            productos_sin_cambios = 0
+
             for product in tiendanube_products:
-                for variant in product.get('variants', []):
-                    sku = variant.get('sku')
-                    if sku and sku in shopify_sku_map:
-                        shopify_data = shopify_sku_map[sku]
-                        print(f"\n📦 Procesando SKU: {sku}")
-                        print(f"Stock en Tiendanube: {variant['stock']}")
-                        # Actualizar Shopify con el stock de Tiendanube
-                        self.update_shopify_inventory(
-                            shopify_data['inventory_item_id'],
-                            main_location_id,
-                            variant['stock']
-                        )
-                        productos_actualizados += 1
-                    else:
-                        if sku:
+                product_id = str(product.get('id'))
+                
+                if product.get('variants'):
+                    for variant in product.get('variants', []):
+                        variant_id = str(variant.get('id'))
+                        # Usar el formato producto-variante para el SKU
+                        sku = f"{product_id}-{variant_id}"
+                        
+                        print(f"\n📦 Procesando producto ID: {product_id}, variante ID: {variant_id}")
+                        print(f"Buscando SKU en Shopify: {sku}")
+                        
+                        if sku in shopify_sku_map:
+                            shopify_data = shopify_sku_map[sku]
+                            print(f"✅ SKU encontrado en Shopify")
+                            print(f"Stock en Tiendanube: {variant['stock']}")
+                            
+                            # Actualizar stock solo si hay diferencia
+                            if self.set_shopify_inventory(
+                                shopify_data['inventory_item_id'],
+                                shop_location_id,
+                                variant['stock'],
+                                shopify_data['current_stock']
+                            ):
+                                productos_actualizados += 1
+                            else:
+                                productos_sin_cambios += 1
+                        else:
                             print(f"⚠️ SKU no encontrado en Shopify: {sku}")
                             productos_no_encontrados += 1
+                else:
+                    # Para productos sin variantes, usar solo el ID del producto
+                    sku = product_id
+                    print(f"\n📦 Procesando producto simple ID: {product_id}")
+                    print(f"Buscando SKU en Shopify: {sku}")
+                    
+                    if sku in shopify_sku_map:
+                        shopify_data = shopify_sku_map[sku]
+                        print(f"✅ SKU encontrado en Shopify")
+                        print(f"Stock en Tiendanube: {product.get('stock', 0)}")
+                        
+                        # Actualizar stock solo si hay diferencia
+                        if self.set_shopify_inventory(
+                            shopify_data['inventory_item_id'],
+                            shop_location_id,
+                            product.get('stock', 0),
+                            shopify_data['current_stock']
+                        ):
+                            productos_actualizados += 1
+                        else:
+                            productos_sin_cambios += 1
+                    else:
+                        print(f"⚠️ SKU no encontrado en Shopify: {sku}")
+                        productos_no_encontrados += 1
 
             print("\n✅ Sincronización completada")
             print(f"📊 Resumen:")
             print(f"- Productos actualizados: {productos_actualizados}")
+            print(f"- Productos sin cambios: {productos_sin_cambios}")
             print(f"- Productos no encontrados: {productos_no_encontrados}")
 
         except Exception as e:
@@ -167,4 +233,4 @@ class InventorySync:
 
 if __name__ == '__main__':
     sync = InventorySync()
-    sync.sync_inventory() 
+    sync.sync_inventory()

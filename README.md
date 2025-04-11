@@ -1,149 +1,118 @@
-# Sincronizador Tiendanube-Shopify
+# 🔄 Sincronización Tiendanube-Shopify
 
-Este proyecto proporciona una herramienta para sincronizar productos entre Tiendanube y Shopify, permitiendo la gestión unificada de inventario y productos entre ambas plataformas.
+Sistema automatizado para sincronizar productos e inventario entre Tiendanube y Shopify.
 
-## Características
+## 🚀 Características
 
-- Integración con múltiples tiendas de Tiendanube
-- Integración con la API de Shopify
-- Sincronización bidireccional de productos
-- Gestión completa de variantes y opciones de productos
-- Sincronización de imágenes de productos
-- Manejo de inventario
-- Soporte para múltiples tiendas en paralelo
+- **Sincronización de Productos**
+  - Crea y actualiza productos de Tiendanube en Shopify
+  - Sincroniza todas las variantes y sus atributos
+  - Mantiene los precios actualizados
+  - Transfiere imágenes y descripciones completas
+  - Genera SKUs únicos basados en IDs de producto y variante
 
-## Requisitos
+- **Sincronización de Inventario**
+  - Actualiza el stock en Shopify basado en el inventario de Tiendanube
+  - Usa SKUs compuestos (ID_PRODUCTO-ID_VARIANTE) para mapeo preciso
+  - Mantiene el stock en la ubicación "Shop location" de Shopify
+  - Evita duplicados y solo actualiza cuando hay cambios reales
 
-- Python 3.8 o superior
-- Credenciales de API de Tiendanube para cada tienda
-- Credenciales de API de Shopify
+- **Gestión de Productos**
+  - Soporta productos con y sin variantes
+  - Mantiene la integridad de los datos entre plataformas
+  - Logging detallado del proceso de sincronización
+  - Manejo de categorías y colecciones
+  - Sincronización de metadatos y tags
 
-## Instalación
 
-1. Clonar el repositorio:
-```bash
-git clone https://github.com/TuliEscobar/tiendanube-sync.git
-cd tiendanube-sync
+## 🛠️ Configuración
+
+1. Crea un archivo `.env` con las siguientes variables:
+
+```env
+# Tiendanube
+TIENDANUBE_CREDENTIALS='[
+    {
+        "base_url": "https://api.tiendanube.com/v1/TU_ID_TIENDA",
+        "headers": {
+            "Authentication": "bearer TU_TOKEN",
+            "User-Agent": "TU_APP_NAME"
+        }
+    }
+]'
+
+# Shopify
+SHOPIFY_SHOP_URL="tu-tienda.myshopify.com"
+SHOPIFY_ACCESS_TOKEN="tu_access_token"
 ```
 
-2. Instalar dependencias:
+## 📦 Instalación
+
+1. Clona el repositorio:
+```bash
+git clone https://github.com/tu-usuario/sync_tiendanube_shopify.git
+cd sync_tiendanube_shopify
+```
+
+2. Instala las dependencias:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Configurar las variables de entorno en `src/.env`:
-```env
-# Configuración de Tiendanube
-TIENDANUBE_CREDENTIALS=[
-    {
-        "base_url": "https://api.tiendanube.com/v1/store_id_1",
-        "headers": {
-            "Authentication": "bearer your_token_1",
-            "User-Agent": "your_app_name"
-        }
-    }
-]
+## 🚀 Uso
 
-# Configuración de Shopify
-SHOPIFY_SHOP_URL=your-store.myshopify.com
-SHOPIFY_ACCESS_TOKEN=your_access_token
-```
-
-## Uso
-
-### Sincronización de Productos
-
-```python
-from src.tiendanube import TiendanubeAPI
-from src.shopify import ShopifyAPI
-
-# Inicializar clientes
-tiendanube = TiendanubeAPI(store_number=1)
-shopify = ShopifyAPI()
-
-# Obtener productos de Tiendanube
-products = tiendanube.get_products(include_variants=True)
-
-# Sincronizar con Shopify
-for product in products:
-    shopify.create_product(product)
-```
-
-### TiendanubeAPI
-
-```python
-from src.tiendanube import TiendanubeAPI
-
-# Inicializar cliente
-client = TiendanubeAPI(store_number=1)
-
-# Obtener productos con variantes
-products = client.get_products(include_variants=True)
-
-# Obtener un producto específico
-product = client.get_product(product_id=123, include_variants=True)
-```
-
-### ShopifyAPI
-
-```python
-from src.shopify import ShopifyAPI
-
-# Inicializar cliente
-client = ShopifyAPI()
-
-# Crear producto con variantes
-response = client.create_product({
-    "name": {"es": "Nuevo Producto"},
-    "variants": [
-        {
-            "price": "100.00",
-            "stock": 10,
-            "values": [{"es": "Rojo"}]
-        }
-    ],
-    "attributes": [{"es": "Color"}]
-})
-```
-
-## Estructura del Proyecto
-
-```
-.
-├── src/
-│   ├── tiendanube.py      # Cliente API de Tiendanube
-│   ├── shopify.py         # Cliente API de Shopify
-│   ├── sync_products.py   # Módulo de sincronización
-│   └── .env              # Configuración de credenciales
-├── test_products.py       # Script de prueba para productos
-├── test_sync_products.py  # Script de prueba para sincronización
-├── test_shopify.py       # Script de prueba para Shopify
-├── requirements.txt      # Dependencias del proyecto
-└── README.md            # Documentación
-```
-
-## Scripts de Utilidad
-
-### test_products.py
-Muestra todos los productos y sus variantes de las tiendas configuradas:
+Para ejecutar la sincronización de productos (creación y actualización):
 ```bash
-python test_products.py
+python src/sync_products.py
 ```
 
-### test_sync_products.py
-Sincroniza productos de Tiendanube a Shopify:
+Para ejecutar la sincronización de inventario:
 ```bash
-python test_sync_products.py
+python src/sync_inventory.py
 ```
 
-## Contribuir
 
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
 
-## Licencia
+## 📊 Monitoreo
 
-Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles. 
+El sistema proporciona logs detallados que incluyen:
+- Productos encontrados en cada plataforma
+- Productos creados o actualizados
+- SKUs procesados y resultados
+- Cambios de stock realizados
+- Mensajes promocionales enviados
+- Resumen final de la sincronización
+
+
+## 🔍 Logs de Ejemplo
+
+```
+🔄 Iniciando sincronización de productos...
+✅ Se encontraron 150 productos en Tiendanube
+✅ Se encontraron 145 productos en Shopify
+
+📦 Procesando producto: "Notebook HP 15"
+✅ Producto creado/actualizado en Shopify
+✅ 3 variantes sincronizadas
+✅ 5 imágenes transferidas
+
+📦 Procesando producto ID: 252417560, variante ID: 1114904464
+✅ SKU encontrado en Shopify: 252417560-1114904464
+Stock actual: 5
+Nuevo stock: 8
+✅ Inventario actualizado correctamente
+
+📊 Resumen de sincronización:
+- Productos creados: 5
+- Productos actualizados: 140
+- Variantes sincronizadas: 450
+- Imágenes transferidas: 300
+```
+
+## 🤝 Contribuciones
+
+Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir los cambios que te gustaría hacer.
+
+## 📝 Licencia
+
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles. 
