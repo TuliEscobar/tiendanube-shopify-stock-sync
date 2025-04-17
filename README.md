@@ -16,6 +16,9 @@ Sistema automatizado para sincronizar productos e inventario entre Tiendanube y 
   - Usa SKUs compuestos (ID_PRODUCTO-ID_VARIANTE) para mapeo preciso
   - Mantiene el stock en la ubicación "Shop location" de Shopify
   - Evita duplicados y solo actualiza cuando hay cambios reales
+  - Crea automáticamente nuevas variantes si se detectan en Tiendanube
+  - Sincroniza el stock inicial al crear nuevas variantes
+  - Control de rate limits para evitar sobrecarga de las APIs
 
 - **Gestión de Productos**
   - Soporta productos con y sin variantes
@@ -31,19 +34,31 @@ Sistema automatizado para sincronizar productos e inventario entre Tiendanube y 
 
 ```env
 # Tiendanube
+# Puedes configurar múltiples tiendas en el array de TIENDANUBE_CREDENTIALS
 TIENDANUBE_CREDENTIALS='[
     {
-        "base_url": "https://api.tiendanube.com/v1/TU_ID_TIENDA",
+        "base_url": "https://api.tiendanube.com/v1/5757772",
         "headers": {
-            "Authentication": "bearer TU_TOKEN",
-            "User-Agent": "TU_APP_NAME"
+            "Authentication": "bearer tu_token_aqui",
+            "User-Agent": "Mi App (tu@email.com)"
+        }
+    },
+    {
+        "base_url": "https://api.tiendanube.com/v1/otra_tienda",
+        "headers": {
+            "Authentication": "bearer otro_token",
+            "User-Agent": "Mi App (tu@email.com)"
         }
     }
 ]'
 
 # Shopify
 SHOPIFY_SHOP_URL="tu-tienda.myshopify.com"
-SHOPIFY_ACCESS_TOKEN="tu_access_token"
+SHOPIFY_ACCESS_TOKEN="shpat_tu_token_aqui"
+
+# Configuración opcional
+DEBUG=True  # Habilita logs adicionales
+RATE_LIMIT_DELAY=0.5  # Delay entre llamadas API en segundos
 ```
 
 ## 📦 Instalación
@@ -71,8 +86,6 @@ Para ejecutar la sincronización de inventario:
 python src/sync_inventory.py
 ```
 
-
-
 ## 📊 Monitoreo
 
 El sistema proporciona logs detallados que incluyen:
@@ -80,33 +93,40 @@ El sistema proporciona logs detallados que incluyen:
 - Productos creados o actualizados
 - SKUs procesados y resultados
 - Cambios de stock realizados
-- Mensajes promocionales enviados
-- Resumen final de la sincronización
-
+- Creación de nuevas variantes
+- Resumen por tienda y global
+- Control de rate limits y errores
 
 ## 🔍 Logs de Ejemplo
 
 ```
-🔄 Iniciando sincronización de productos...
+🔄 Procesando 2 tiendas...
+
+📦 Procesando tienda 1/2
+🔹 URL: https://api.tiendanube.com/v1/5757772
+✅ Inicialización completada
+
+🔄 Iniciando sincronización de inventario...
 ✅ Se encontraron 150 productos en Tiendanube
 ✅ Se encontraron 145 productos en Shopify
+✅ Se encontraron 2 ubicaciones en Shopify
 
 📦 Procesando producto: "Notebook HP 15"
-✅ Producto creado/actualizado en Shopify
-✅ 3 variantes sincronizadas
-✅ 5 imágenes transferidas
+ℹ️ Stock sin cambios para variante ID: 7379351470214-41741744504966 (Stock: 623)
+✅ Nueva variante creada - SKU: 252417560-1114904464
+✅ Stock actualizado - Producto ID: 7379351470214-41741744504966 | 0 → 8
 
-📦 Procesando producto ID: 252417560, variante ID: 1114904464
-✅ SKU encontrado en Shopify: 252417560-1114904464
-Stock actual: 5
-Nuevo stock: 8
-✅ Inventario actualizado correctamente
+📊 Resumen de la tienda:
+- Productos actualizados: 45
+- Productos sin cambios: 100
+- Productos no encontrados: 5
+- Nuevas variantes creadas: 3
 
-📊 Resumen de sincronización:
-- Productos creados: 5
-- Productos actualizados: 140
-- Variantes sincronizadas: 450
-- Imágenes transferidas: 300
+🎉 Proceso completado para todas las tiendas!
+📊 Resumen Global:
+- Total productos actualizados: 85
+- Total productos sin cambios: 200
+- Total productos no encontrados: 15
 ```
 
 ## 🤝 Contribuciones
