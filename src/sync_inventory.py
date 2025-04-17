@@ -4,9 +4,13 @@ import time
 from typing import Dict, List
 import requests
 from dotenv import load_dotenv
+from stock_cache_manager import StockCacheManager
+import logging
 
 # Cargar variables de entorno
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class InventorySync:
     def __init__(self, tiendanube_credentials: Dict):
@@ -37,6 +41,10 @@ class InventorySync:
         self.productos_actualizados = 0
         self.productos_sin_cambios = 0
         self.productos_no_encontrados = 0
+        
+        # Inicializar el gestor de caché
+        store_id = tiendanube_credentials['base_url'].split('/')[-1]
+        self.cache_manager = StockCacheManager(f"stock_cache_{store_id}.json")
         
         print("✅ Inicialización completada")
         print(f"🔹 URL Tiendanube: {self.tiendanube_base_url}")
@@ -141,6 +149,7 @@ class InventorySync:
         """Establece el inventario de un producto en Shopify"""
         if current_quantity == new_quantity:
             print(f"ℹ️ Stock sin cambios para producto ID: {product_info['product_id']}-{product_info['variant_id']} (Stock: {current_quantity})")
+            self.productos_sin_cambios += 1
             return False
 
         try:
@@ -198,158 +207,133 @@ class InventorySync:
             print(f"❌ Error al crear variante: {str(e)}")
             raise
 
-    def sync_inventory(self):
-        """Sincroniza el inventario desde Tiendanube hacia Shopify"""
+    def set_tiendanube_stock(self, product_id: str, variant_id: str, new_quantity: int, current_quantity: int):
+        """Establece el inventario de un producto en Tiendanube"""
+        if current_quantity == new_quantity:
+            print(f"ℹ️ Stock sin cambios en Tiendanube para producto ID: {product_id}-{variant_id} (Stock: {current_quantity})")
+            return False
+
         try:
-            print("\n🔄 Iniciando sincronización de inventario...")
+            # Para productos con variantes
+            if variant_id != "0":
+                url = f'{self.tiendanube_base_url}/products/{product_id}/variants/{variant_id}'
+                data = {'stock': new_quantity}
+            # Para productos simples
+            else:
+                url = f'{self.tiendanube_base_url}/products/{product_id}'
+                data = {'stock': new_quantity}
+
+            response = requests.put(url, headers=self.tiendanube_headers, json=data)
             
-            # Reiniciar contadores
-            self.productos_actualizados = 0
-            self.productos_sin_cambios = 0
-            self.productos_no_encontrados = 0
-            self.variantes_creadas = 0  # Nuevo contador
-            
-            # 1. Obtener productos de Tiendanube
-            tiendanube_products = self.get_tiendanube_products()
-            
-            # 2. Obtener productos de Shopify
-            shopify_products = self.get_shopify_products()
-            
-            # 3. Obtener ubicación principal de Shopify
-            locations = self.get_shopify_locations()
-            shop_location = next((loc for loc in locations if loc['name'] == 'Shop location'), None)
-            if not shop_location:
-                raise Exception("No se encontró la ubicación 'Shop location'")
-            
-            shop_location_id = shop_location['id']
-            
-            # 4. Crear mapeo de SKUs y productos de Shopify
-            shopify_sku_map = {}
-            shopify_product_map = {}  # Nuevo mapeo para productos completos
-            for product in shopify_products:
-                shopify_product_map[product['id']] = product
-                for variant in product.get('variants', []):
-                    if variant.get('sku'):
-                        shopify_sku_map[variant['sku']] = {
-                            'inventory_item_id': variant['inventory_item_id'],
-                            'product_id': product['id'],
-                            'variant_id': variant['id']
-                        }
-            
-            # 5. Procesar productos de Tiendanube
-            for product in tiendanube_products:
-                product_id = str(product.get('id'))
+            if response.status_code != 200:
+                raise Exception(f'Error al actualizar inventario: {response.text}')
                 
-                if product.get('variants'):
-                    # Producto con variantes
-                    for variant in product.get('variants', []):
-                        variant_id = str(variant.get('id'))
-                        sku = f"{product_id}-{variant_id}"
-                        
-                        if sku in shopify_sku_map:
-                            # Actualizar inventario de variante existente
-                            shopify_data = shopify_sku_map[sku]
-                            current_stock = self.get_shopify_inventory_level(
-                                shopify_data['inventory_item_id'],
-                                shop_location_id
-                            )
-                            
-                            if self.set_shopify_inventory(
-                                shopify_data['inventory_item_id'],
-                                shop_location_id,
-                                variant['stock'],
-                                current_stock,
-                                shopify_data
-                            ):
-                                self.productos_actualizados += 1
-                            else:
-                                self.productos_sin_cambios += 1
-                        else:
-                            # Intentar encontrar el producto principal por otras variantes
-                            existing_product_id = None
-                            for existing_sku, data in shopify_sku_map.items():
-                                if existing_sku.startswith(product_id + '-'):
-                                    existing_product_id = data['product_id']
-                                    break
-                            
-                            if existing_product_id:
-                                # Crear nueva variante en producto existente
-                                try:
-                                    shopify_product = shopify_product_map[existing_product_id]
-                                    variant_data = {
-                                        'price': str(variant.get('price', 0)),
-                                        'sku': sku,
-                                        'inventory_management': 'shopify',
-                                        'inventory_policy': 'deny'
-                                    }
-                                    
-                                    # Agregar opciones si existen
-                                    for i, value in enumerate(variant.get('values', []), 1):
-                                        if i <= len(product.get('attributes', [])):
-                                            option_value = value.get('es', '')
-                                            if option_value:
-                                                variant_data[f'option{i}'] = option_value
-                                    
-                                    new_variant = self.create_variant(existing_product_id, variant_data)
-                                    print(f"✅ Nueva variante creada - SKU: {sku}")
-                                    self.variantes_creadas += 1
-                                    
-                                    # Actualizar mapeo de SKUs con la nueva variante
-                                    shopify_sku_map[sku] = {
-                                        'inventory_item_id': new_variant['inventory_item_id'],
-                                        'product_id': existing_product_id,
-                                        'variant_id': new_variant['id']
-                                    }
-
-                                    # Actualizar el inventario de la nueva variante
-                                    if self.set_shopify_inventory(
-                                        new_variant['inventory_item_id'],
-                                        shop_location_id,
-                                        variant.get('stock', 0),
-                                        0,  # El stock inicial es 0 para una nueva variante
-                                        {'product_id': existing_product_id, 'variant_id': new_variant['id']}
-                                    ):
-                                        self.productos_actualizados += 1
-                                except Exception as e:
-                                    print(f"❌ Error al crear nueva variante - SKU: {sku}: {str(e)}")
-                                    self.productos_no_encontrados += 1
-                            else:
-                                print(f"❌ Producto no encontrado en Shopify - SKU: {sku}")
-                                self.productos_no_encontrados += 1
-                else:
-                    # Producto simple
-                    sku = product_id
-                    if sku in shopify_sku_map:
-                        shopify_data = shopify_sku_map[sku]
-                        current_stock = self.get_shopify_inventory_level(
-                            shopify_data['inventory_item_id'],
-                            shop_location_id
-                        )
-                        
-                        if self.set_shopify_inventory(
-                            shopify_data['inventory_item_id'],
-                            shop_location_id,
-                            product.get('stock', 0),
-                            current_stock,
-                            shopify_data
-                        ):
-                            self.productos_actualizados += 1
-                        else:
-                            self.productos_sin_cambios += 1
-                    else:
-                        print(f"❌ Producto no encontrado en Shopify - SKU: {sku}")
-                        self.productos_no_encontrados += 1
-
-            print("\n✅ Sincronización completada")
-            print(f"📊 Resumen de la tienda:")
-            print(f"- Productos actualizados: {self.productos_actualizados}")
-            print(f"- Productos sin cambios: {self.productos_sin_cambios}")
-            print(f"- Productos no encontrados: {self.productos_no_encontrados}")
-            print(f"- Nuevas variantes creadas: {self.variantes_creadas}")
-
+            print(f"✅ Stock actualizado en Tiendanube - Producto ID: {product_id}-{variant_id} | {current_quantity} → {new_quantity}")
+            return True
+            
         except Exception as e:
-            print(f"\n❌ Error durante la sincronización: {str(e)}")
-            raise
+            print(f"❌ Error al actualizar inventario en Tiendanube para producto ID: {product_id}-{variant_id}: {str(e)}")
+            return False
+
+    def sync_inventory(self):
+        """
+        Sincroniza el inventario entre Tiendanube y Shopify usando el caché de stock
+        """
+        logger.info("Iniciando sincronización de inventario")
+        
+        # Obtenemos productos de ambas plataformas
+        tiendanube_products = self.get_tiendanube_products()
+        logger.info(f"Productos encontrados en Tiendanube: {len(tiendanube_products)}")
+        
+        shopify_products = self.get_shopify_products()
+        logger.info(f"Productos encontrados en Shopify: {len(shopify_products)}")
+        
+        # Obtenemos la ubicación principal de Shopify
+        locations = self.get_shopify_locations()
+        shop_location = next((loc for loc in locations if loc['name'] == 'Shop location'), None)
+        if not shop_location:
+            raise Exception("No se encontró la ubicación 'Shop location'")
+        
+        logger.info(f"Ubicación de Shopify encontrada: {shop_location['name']} ({shop_location['id']})")
+        
+        # Mapeamos productos por SKU para fácil acceso
+        shopify_by_sku = {}
+        total_variants = 0
+        for product in shopify_products:
+            for variant in product.get('variants', []):
+                if variant.get('sku'):
+                    total_variants += 1
+                    shopify_by_sku[variant['sku']] = {
+                        'inventory_item_id': variant['inventory_item_id'],
+                        'location_id': shop_location['id'],
+                        'product_id': product['id'],
+                        'variant_id': variant['id']
+                    }
+        
+        logger.info(f"Total de variantes en Shopify: {total_variants}")
+        logger.info(f"SKUs mapeados: {len(shopify_by_sku)}")
+        
+        for tn_product in tiendanube_products:
+            product_id = str(tn_product['id'])
+            logger.info(f"\nProcesando producto Tiendanube ID: {product_id}")
+            
+            # Procesamos cada variante
+            variants = tn_product.get('variants', [])
+            logger.info(f"Variantes encontradas: {len(variants)}")
+            
+            for variant in variants:
+                variant_id = str(variant['id'])
+                sku = f"{product_id}-{variant_id}"
+                current_stock = variant.get('stock', 0)
+                
+                logger.info(f"Procesando variante: {sku} (Stock actual: {current_stock})")
+                
+                # Si no existe en Shopify, continuamos
+                if sku not in shopify_by_sku:
+                    logger.warning(f"SKU {sku} no encontrado en Shopify")
+                    continue
+                    
+                shopify_variant = shopify_by_sku[sku]
+                shopify_stock = self.get_shopify_inventory_level(
+                    shopify_variant['inventory_item_id'],
+                    shopify_variant['location_id']
+                )
+                
+                logger.info(f"Stock en Shopify: {shopify_stock}")
+                
+                # Verificamos si debemos actualizar Shopify
+                shopify_updated = False
+                if self.cache_manager.should_update_shopify(product_id, variant_id, current_stock, shopify_stock):
+                    logger.info(f"Actualizando stock en Shopify para SKU {sku}: {current_stock}")
+                    if self.set_shopify_inventory(
+                        shopify_variant['inventory_item_id'],
+                        shopify_variant['location_id'],
+                        current_stock,
+                        shopify_stock,
+                        shopify_variant
+                    ):
+                        self.productos_actualizados += 1
+                        self.cache_manager.update_stock(product_id, variant_id, current_stock, current_stock)
+                        logger.info("✅ Stock actualizado en Shopify")
+                        shopify_updated = True
+                else:
+                    self.productos_sin_cambios += 1
+                    logger.info("ℹ️ No es necesario actualizar Shopify")
+                
+                # Solo verificamos Shopify si no se actualizó previamente
+                if not shopify_updated:
+                    # Verificamos si debemos actualizar Tiendanube (cuando Shopify tiene menos stock)
+                    if self.cache_manager.should_update_tiendanube(product_id, variant_id, current_stock, shopify_stock):
+                        logger.info(f"Actualizando stock en Tiendanube para SKU {sku}: {shopify_stock}")
+                        if self.set_tiendanube_stock(product_id, variant_id, shopify_stock, current_stock):
+                            self.cache_manager.update_stock(product_id, variant_id, shopify_stock, shopify_stock)
+                            logger.info("✅ Stock actualizado en Tiendanube")
+                    
+        logger.info("\n=== Resumen de sincronización ===")
+        logger.info(f"Productos actualizados: {self.productos_actualizados}")
+        logger.info(f"Productos sin cambios: {self.productos_sin_cambios}")
+        logger.info(f"Productos no encontrados: {self.productos_no_encontrados}")
+        logger.info("Sincronización de inventario completada")
 
 def main():
     try:

@@ -31,3 +31,6 @@ var/
 *.swo 
 
 blueprint.json
+
+# Archivos de caché de stock
+stock_cache*.json

@@ -11,6 +11,13 @@ Sistema automatizado para sincronizar productos e inventario entre Tiendanube y 
   - Transfiere imágenes y descripciones completas
   - Genera SKUs únicos basados en IDs de producto y variante
 
+- **Sistema de Caché de Stock**
+  - Archivos `stock_cache_{store_id}.json` para cada tienda
+  - Evita actualizaciones innecesarias comparando con el último estado conocido
+  - Actualización inteligente basada en cambios reales de stock
+  - Ignorados por git para evitar conflictos entre diferentes entornos
+  - Regeneración automática si el archivo está corrupto o no existe
+
 - **Sincronización de Inventario**
   - Actualiza el stock en Shopify basado en el inventario de Tiendanube
   - Usa SKUs compuestos (ID_PRODUCTO-ID_VARIANTE) para mapeo preciso
@@ -20,19 +27,13 @@ Sistema automatizado para sincronizar productos e inventario entre Tiendanube y 
   - Sincroniza el stock inicial al crear nuevas variantes
   - Control de rate limits para evitar sobrecarga de las APIs
 
-- **Scheduler Automático**
-  - Sincronización automática cada 15 minutos
-  - Sistema de logs para monitorear sincronizaciones exitosas y errores
-  - Reintentos automáticos en caso de fallos
-  - Manejo de errores y registro detallado
-  - Fácil configuración y monitoreo
-
 - **Gestión de Productos**
   - Soporta productos con y sin variantes
   - Mantiene la integridad de los datos entre plataformas
   - Logging detallado del proceso de sincronización
   - Manejo de categorías y colecciones
   - Sincronización de metadatos y tags
+
 
 ## 🛠️ Configuración
 
@@ -82,8 +83,6 @@ pip install -r requirements.txt
 
 ## 🚀 Uso
 
-### Sincronización Manual
-
 Para ejecutar la sincronización de productos (creación y actualización):
 ```bash
 python src/sync_products.py
@@ -93,17 +92,6 @@ Para ejecutar la sincronización de inventario:
 ```bash
 python src/sync_inventory.py
 ```
-
-### Sincronización Automática (Scheduler)
-
-Para iniciar el scheduler que sincronizará el inventario cada 15 minutos:
-```bash
-python src/scheduler.py
-```
-
-El scheduler generará dos archivos de log:
-- `last_sync.log`: Registro de sincronizaciones exitosas
-- `error_sync.log`: Registro de errores durante la sincronización
 
 ## 📊 Monitoreo
 
@@ -115,7 +103,6 @@ El sistema proporciona logs detallados que incluyen:
 - Creación de nuevas variantes
 - Resumen por tienda y global
 - Control de rate limits y errores
-- Registro de sincronizaciones automáticas
 
 ## 🔍 Logs de Ejemplo
 
@@ -155,4 +142,4 @@ Las contribuciones son bienvenidas. Por favor, abre un issue primero para discut
 
 ## 📝 Licencia
 
-Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles. 
