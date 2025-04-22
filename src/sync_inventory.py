@@ -1,33 +1,36 @@
 import os
 import json
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 import requests
 from dotenv import load_dotenv
+from src.store_config import StoreConfig
+from src.shopify import ShopifyAPI
+from src.tiendanube import TiendanubeAPI
+from src.stock_tracker import StockTracker
+from src.stock_database import StockDatabase
 
 # Cargar variables de entorno
 load_dotenv()
 
+# Inicializar el tracker de stock si estamos en modo validación
+VALIDATE_STOCK = os.environ.get('STOCK_VALIDATION') == '1'
+stock_tracker = StockTracker() if VALIDATE_STOCK else None
+
+# Inicializar la base de datos de stock
+stock_db = StockDatabase()
+
 class InventorySync:
-    def __init__(self, tiendanube_credentials: Dict):
-        # Credenciales de Tiendanube
-        self.tiendanube_base_url = tiendanube_credentials['base_url']
-        self.tiendanube_headers = tiendanube_credentials['headers']
+    def __init__(self, store_config: Dict):
+        """
+        Inicializa el sincronizador de inventario
         
-        # Credenciales de Shopify
-        self.shopify_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
-        shopify_shop_url = os.getenv('SHOPIFY_SHOP_URL')
-        
-        if not all([self.shopify_token, shopify_shop_url]):
-            raise Exception("Faltan credenciales de Shopify")
-        
-        # Formatear la URL de Shopify
-        self.shopify_store_url = f'https://{shopify_shop_url}'
-        
-        self.shopify_headers = {
-            'X-Shopify-Access-Token': self.shopify_token,
-            'Content-Type': 'application/json'
-        }
+        Args:
+            store_config (Dict): Configuración de la tienda desde el Excel
+        """
+        # Inicializar APIs
+        self.tiendanube = TiendanubeAPI(store_config=store_config)
+        self.shopify = ShopifyAPI()
         
         # Control de rate limits
         self.last_request_time = time.time()
@@ -37,10 +40,11 @@ class InventorySync:
         self.productos_actualizados = 0
         self.productos_sin_cambios = 0
         self.productos_no_encontrados = 0
+        self.variantes_creadas = 0
         
         print("✅ Inicialización completada")
-        print(f"🔹 URL Tiendanube: {self.tiendanube_base_url}")
-        print(f"🔹 URL Shopify: {self.shopify_store_url}")
+        print(f"🔹 URL Tiendanube: {store_config['api_url']}")
+        print(f"🔹 URL Shopify: {self.shopify.api_url}")
 
     def _wait_for_rate_limit(self):
         """Espera el tiempo necesario para respetar el rate limit"""
@@ -53,11 +57,12 @@ class InventorySync:
         """Realiza una petición a Shopify respetando los rate limits"""
         self._wait_for_rate_limit()
         
-        url = f'{self.shopify_store_url}/admin/api/2024-01/{endpoint}'
+        # Usar la URL base de la API sin el endpoint
+        url = f'{self.shopify.api_url}/{endpoint}'
         response = requests.request(
             method=method,
             url=url,
-            headers=self.shopify_headers,
+            headers=self.shopify.headers,
             **kwargs
         )
         
@@ -71,18 +76,14 @@ class InventorySync:
 
     def get_tiendanube_products(self) -> List[Dict]:
         """Obtiene todos los productos de Tiendanube"""
-        url = f'{self.tiendanube_base_url}/products'
-        print(f"\n🔄 Obteniendo productos de Tiendanube desde: {url}")
-        response = requests.get(url, headers=self.tiendanube_headers)
-        if response.status_code == 200:
-            products = response.json()
+        print("\n🔄 Obteniendo productos de Tiendanube")
+        try:
+            products = self.tiendanube.get_products()
             print(f"✅ Se encontraron {len(products)} productos en Tiendanube")
             return products
-        else:
-            print(f"❌ Error al obtener productos de Tiendanube:")
-            print(f"Status Code: {response.status_code}")
-            print(f"Response: {response.text}")
-            raise Exception(f'Error al obtener productos de Tiendanube: {response.text}')
+        except Exception as e:
+            print(f"❌ Error al obtener productos de Tiendanube: {str(e)}")
+            raise
 
     def get_shopify_products(self) -> List[Dict]:
         """Obtiene todos los productos de Shopify"""
@@ -180,6 +181,97 @@ class InventorySync:
             print(f"❌ Error al obtener ubicaciones: {str(e)}")
             raise
 
+    def find_shopify_product_by_tiendanube_id(self, tiendanube_id: str) -> Optional[Dict]:
+        """Busca un producto en Shopify por el ID de Tiendanube usando SKU"""
+        try:
+            response = self._make_shopify_request(
+                'GET',
+                'products.json',
+                params={'limit': 250}
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f'Error al buscar producto: {response.text}')
+            
+            products = response.json()['products']
+            for product in products:
+                # Buscar en las variantes si alguna tiene el SKU base del producto
+                for variant in product.get('variants', []):
+                    if variant.get('sku', '').startswith(str(tiendanube_id)):
+                        return product
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error al buscar producto en Shopify: {str(e)}")
+            return None
+
+    def create_shopify_variant(self, shopify_product: Dict, tiendanube_product: Dict, tiendanube_variant: Dict) -> Dict:
+        """Crea una nueva variante en un producto existente de Shopify"""
+        try:
+            # Preparar las opciones basadas en las existentes en el producto
+            variant_data = {
+                'variant': {
+                    'product_id': shopify_product['id'],
+                    'sku': f"{tiendanube_product['id']}-{tiendanube_variant['id']}",
+                    'price': str(tiendanube_variant.get('price', '0.00')),
+                    'inventory_management': 'shopify',
+                    'inventory_policy': 'deny'
+                }
+            }
+
+            # Agregar los valores de las opciones existentes
+            for i, option in enumerate(shopify_product.get('options', []), 1):
+                option_name = option['name'].lower()
+                option_values = tiendanube_variant.get('values', [])
+                
+                # Buscar el valor correspondiente en las opciones de Tiendanube
+                option_value = None
+                for value in option_values:
+                    if value.get('es'):
+                        option_value = value['es']
+                        break
+                
+                if option_value:
+                    variant_data['variant'][f'option{i}'] = option_value
+                else:
+                    # Si no hay valor, usar el primer valor disponible de la opción
+                    variant_data['variant'][f'option{i}'] = option['values'][0]
+
+            print(f"🔄 Creando variante con datos: {json.dumps(variant_data, indent=2)}")
+
+            # Crear la variante
+            response = self._make_shopify_request(
+                'POST',
+                f'products/{shopify_product["id"]}/variants.json',
+                json=variant_data
+            )
+
+            if response.status_code != 201:
+                print(f"❌ Error al crear variante. Respuesta: {response.text}")
+                raise Exception(f'Error al crear variante: {response.text}')
+
+            new_variant = response.json()['variant']
+            print(f"✅ Nueva variante creada en Shopify - SKU: {variant_data['variant']['sku']}")
+            
+            # Establecer el inventario inicial
+            self.set_shopify_inventory(
+                new_variant['inventory_item_id'],
+                self.shop_location_id,
+                tiendanube_variant['stock'],
+                0,
+                {
+                    'product_id': shopify_product['id'],
+                    'variant_id': new_variant['id']
+                }
+            )
+            
+            return new_variant
+            
+        except Exception as e:
+            print(f"❌ Error al crear variante en Shopify: {str(e)}")
+            raise
+
     def sync_inventory(self):
         """Sincroniza el inventario desde Tiendanube hacia Shopify"""
         try:
@@ -189,6 +281,7 @@ class InventorySync:
             self.productos_actualizados = 0
             self.productos_sin_cambios = 0
             self.productos_no_encontrados = 0
+            self.variantes_creadas = 0
             
             # 1. Obtener productos de Tiendanube
             tiendanube_products = self.get_tiendanube_products()
@@ -202,7 +295,7 @@ class InventorySync:
             if not shop_location:
                 raise Exception("No se encontró la ubicación 'Shop location'")
             
-            shop_location_id = shop_location['id']
+            self.shop_location_id = shop_location['id']
             
             # 4. Crear mapeo de SKUs de Shopify
             shopify_sku_map = {}
@@ -226,15 +319,16 @@ class InventorySync:
                         sku = f"{product_id}-{variant_id}"
                         
                         if sku in shopify_sku_map:
+                            # Actualizar inventario de variante existente
                             shopify_data = shopify_sku_map[sku]
                             current_stock = self.get_shopify_inventory_level(
                                 shopify_data['inventory_item_id'],
-                                shop_location_id
+                                self.shop_location_id
                             )
                             
                             if self.set_shopify_inventory(
                                 shopify_data['inventory_item_id'],
-                                shop_location_id,
+                                self.shop_location_id,
                                 variant['stock'],
                                 current_stock,
                                 shopify_data
@@ -243,8 +337,42 @@ class InventorySync:
                             else:
                                 self.productos_sin_cambios += 1
                         else:
-                            print(f"❌ Producto no encontrado en Shopify - SKU: {sku} (Tiendanube ID: {product_id}, Variante ID: {variant_id})")
-                            self.productos_no_encontrados += 1
+                            # Intentar crear la variante
+                            print(f"🔄 Variante no encontrada, intentando crearla - SKU: {sku}")
+                            shopify_product = self.find_shopify_product_by_tiendanube_id(product_id)
+                            
+                            if shopify_product:
+                                try:
+                                    # Obtener el producto completo de Shopify
+                                    response = self._make_shopify_request(
+                                        'GET',
+                                        f'products/{shopify_product["id"]}.json'
+                                    )
+                                    if response.status_code != 200:
+                                        raise Exception(f'Error al obtener producto: {response.text}')
+                                    
+                                    shopify_product_full = response.json()['product']
+                                    new_variant = self.create_shopify_variant(
+                                        shopify_product_full,
+                                        product,
+                                        variant
+                                    )
+                                    
+                                    # Actualizar el mapeo de SKUs con la nueva variante
+                                    shopify_sku_map[new_variant['sku']] = {
+                                        'inventory_item_id': new_variant['inventory_item_id'],
+                                        'product_id': shopify_product['id'],
+                                        'variant_id': new_variant['id']
+                                    }
+                                    
+                                    self.variantes_creadas += 1
+                                    
+                                except Exception as e:
+                                    print(f"❌ No se pudo crear la variante: {str(e)}")
+                                    self.productos_no_encontrados += 1
+                            else:
+                                print(f"❌ Producto base no encontrado en Shopify - SKU: {sku}")
+                                self.productos_no_encontrados += 1
                 else:
                     # Producto simple
                     sku = product_id
@@ -252,12 +380,12 @@ class InventorySync:
                         shopify_data = shopify_sku_map[sku]
                         current_stock = self.get_shopify_inventory_level(
                             shopify_data['inventory_item_id'],
-                            shop_location_id
+                            self.shop_location_id
                         )
                         
                         if self.set_shopify_inventory(
                             shopify_data['inventory_item_id'],
-                            shop_location_id,
+                            self.shop_location_id,
                             product.get('stock', 0),
                             current_stock,
                             shopify_data
@@ -274,57 +402,149 @@ class InventorySync:
             print(f"- Productos actualizados: {self.productos_actualizados}")
             print(f"- Productos sin cambios: {self.productos_sin_cambios}")
             print(f"- Productos no encontrados: {self.productos_no_encontrados}")
+            print(f"- Variantes nuevas creadas: {self.variantes_creadas}")
 
         except Exception as e:
             print(f"\n❌ Error durante la sincronización: {str(e)}")
             raise
 
+def should_update_stock(store_id: str, product_id: str, new_stock: int) -> bool:
+    """
+    Determina si se debe actualizar el stock basado en el último valor conocido
+    
+    Args:
+        store_id (str): ID de la tienda
+        product_id (str): ID del producto
+        new_stock (int): Nuevo valor de stock
+        
+    Returns:
+        bool: True si el stock debe actualizarse, False si no
+    """
+    if not VALIDATE_STOCK or stock_tracker is None:
+        return True
+        
+    last_stock = stock_tracker.get_last_stock(store_id, product_id)
+    
+    # Si no hay stock anterior registrado, actualizar
+    if last_stock is None:
+        stock_tracker.update_stock(store_id, product_id, new_stock)
+        return True
+    
+    # Si el stock es diferente, actualizar
+    if last_stock != new_stock:
+        stock_tracker.update_stock(store_id, product_id, new_stock)
+        return True
+    
+    return False
+
+def sync_inventory(store_config: Dict):
+    """Sincroniza el inventario de una tienda"""
+    try:
+        print("\n🔄 Configuración de la tienda:")
+        print(f"   API URL: {store_config.get('api_url')}")
+        print(f"   Token: {store_config.get('token', '')[:20]}...")
+        
+        # Inicializar APIs
+        tiendanube = TiendanubeAPI(store_config=store_config)
+        shopify = ShopifyAPI()
+        
+        # Obtener productos de Tiendanube
+        print("\n🔄 Obteniendo productos de Tiendanube...")
+        products = tiendanube.get_products()
+        
+        if not products:
+            print("❌ No se encontraron productos en Tiendanube")
+            return
+            
+        print(f"✅ Se encontraron {len(products)} productos")
+        
+        # Contadores
+        updates = 0
+        no_changes = 0
+        errors = 0
+        
+        # Usar store_id de la URL de la API
+        store_id = store_config['api_url'].split('/')[-1]
+        
+        # Procesar cada producto
+        for product in products:
+            try:
+                tiendanube_id = str(product['id'])
+                print(f"\n🔍 Procesando producto ID: {tiendanube_id}")
+                
+                # Obtener stock actual
+                current_stock = sum(variant.get('stock', 0) for variant in product.get('variants', []))
+                if not product.get('variants'):
+                    current_stock = product.get('stock', 0)
+                
+                print(f"📊 Stock actual en Tiendanube: {current_stock}")
+                
+                # Obtener último registro de stock
+                last_record = stock_db.get_last_stock(store_id, tiendanube_id)
+                if last_record:
+                    print(f"📊 Último stock registrado: {last_record.get('current_tiendanube_stock', 0)}")
+                else:
+                    print("📊 No hay registro previo de stock")
+                
+                # Forzar sincronización para depuración
+                print(f"🔄 Intentando sincronizar con Shopify...")
+                if shopify.sync_products_from_tiendanube(product):
+                    updates += 1
+                    print(f"✅ Sincronización exitosa")
+                    # Actualizar registro en la base de datos
+                    stock_db.update_stock(
+                        store_id,
+                        tiendanube_id,
+                        current_stock,
+                        current_stock
+                    )
+                else:
+                    print(f"❌ Error en la sincronización")
+                    errors += 1
+                    
+            except Exception as e:
+                print(f"❌ Error procesando producto {tiendanube_id}: {str(e)}")
+                errors += 1
+                continue
+                
+        # Resumen
+        print(f"\n📊 Sincronización completada:")
+        print(f"- Actualizados: {updates}")
+        print(f"- Sin cambios: {no_changes}")
+        print(f"- Errores: {errors}")
+        
+    except Exception as e:
+        print(f"❌ Error general en la sincronización: {str(e)}")
+        raise
+
 def main():
     try:
-        # Obtener credenciales de Tiendanube
-        tiendanube_credentials = json.loads(os.getenv('TIENDANUBE_CREDENTIALS', '[]').strip("'"))
-        if not tiendanube_credentials:
-            raise Exception("No se encontraron credenciales de Tiendanube")
+        store_config = StoreConfig()
+        stores = store_config.get_all_stores()
         
-        print(f"🔄 Procesando {len(tiendanube_credentials)} tiendas...")
+        if not stores:
+            print("No se encontraron tiendas configuradas")
+            return
         
-        # Estadísticas globales
-        total_actualizados = 0
-        total_sin_cambios = 0
-        total_no_encontrados = 0
+        print(f"Iniciando sincronización para {len(stores)} tiendas")
         
-        # Procesar cada tienda
-        for i, credentials in enumerate(tiendanube_credentials, 1):
+        for i, store in enumerate(stores, 1):
             try:
-                print(f"\n📦 Procesando tienda {i}/{len(tiendanube_credentials)}")
-                print(f"🔹 URL: {credentials['base_url']}")
+                print(f"\nProcesando tienda {store.get('category')} ({i}/{len(stores)})")
+                sync_inventory(store)
                 
-                sync = InventorySync(credentials)
-                sync.sync_inventory()
-                
-                # Acumular estadísticas
-                total_actualizados += sync.productos_actualizados
-                total_sin_cambios += sync.productos_sin_cambios
-                total_no_encontrados += sync.productos_no_encontrados
-                
-                # Esperar entre tiendas para respetar rate limits
-                if i < len(tiendanube_credentials):
-                    print("\nEsperando 5 segundos antes de procesar la siguiente tienda...")
+                if i < len(stores):
                     time.sleep(5)
                 
             except Exception as e:
-                print(f"❌ Error en tienda {i}: {str(e)}")
+                print(f"Error en tienda {i}: {str(e)}")
                 continue
         
-        # Mostrar resumen global
-        print("\n🎉 Proceso completado para todas las tiendas!")
-        print(f"📊 Resumen Global:")
-        print(f"- Total productos actualizados: {total_actualizados}")
-        print(f"- Total productos sin cambios: {total_sin_cambios}")
-        print(f"- Total productos no encontrados: {total_no_encontrados}")
+        print("\nProceso completado")
         
     except Exception as e:
-        print(f"❌ Error global: {str(e)}")
+        print(f"❌ Error en el proceso principal: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main()

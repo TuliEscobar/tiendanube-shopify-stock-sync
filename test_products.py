@@ -1,4 +1,11 @@
-from src.tiendanube import TiendanubeAPI, TIENDANUBE_CREDENTIALS
+import sys
+from pathlib import Path
+
+# Agregar el directorio src al path de Python
+sys.path.append(str(Path(__file__).parent))
+
+from src.tiendanube import TiendanubeAPI
+from src.store_config import StoreConfig
 
 def print_product_info(product):
     """Imprime la información de un producto y sus variantes"""
@@ -20,28 +27,25 @@ def print_product_info(product):
     print("-" * 50)
 
 def get_all_products(tienda):
-    """Obtiene todos los productos de una tienda usando paginación"""
-    page = 1
-    all_products = []
-    
-    try:
-        productos = tienda.get_products(page=page, per_page=50, include_variants=True)
-        if productos:
-            all_products.extend(productos)
-    except Exception as e:
-        print(f"Error al obtener productos: {e}")
-    
-    return all_products
+    """Obtiene todos los productos de una tienda"""
+    return tienda.get_products()
 
 def main():
-    # Obtener productos de todas las tiendas configuradas
-    total_tiendas = len(TIENDANUBE_CREDENTIALS)
+    # Inicializar la configuración de tiendas desde Excel
+    store_config = StoreConfig()
+    stores = store_config.get_all_stores()
     
-    for store_number in range(1, total_tiendas + 1):
-        print(f"\n{'='*20} Tienda {store_number} {'='*20}")
+    print(f"Se encontraron {len(stores)} tiendas configuradas")
+    
+    for i, store in enumerate(stores, 1):
+        print(f"\n{'='*20} Tienda {i} {'='*20}")
+        print(f"URL: {store['api_url']}")
+        print(f"Categoría: {store['category']}")
+        print(f"Remarcas configuradas: {store['markups']}")
+        
         try:
             # Crear instancia de la tienda
-            tienda = TiendanubeAPI(store_number=store_number)
+            tienda = TiendanubeAPI(api_url=store['api_url'])
             
             # Obtener todos los productos con sus variantes
             productos = get_all_products(tienda)
@@ -51,7 +55,7 @@ def main():
                 print_product_info(producto)
                 
         except Exception as e:
-            print(f"Error con la tienda {store_number}: {e}")
+            print(f"Error con la tienda {i}: {e}")
 
 if __name__ == "__main__":
     main() 

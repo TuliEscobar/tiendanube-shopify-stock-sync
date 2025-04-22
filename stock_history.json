@@ -1,0 +1,108 @@
+{
+  "stores": {
+    "5757772": {
+      "252417560-1114904464": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:32:01.766454",
+            "tiendanube_stock": 623,
+            "shopify_stock": 623
+          }
+        ],
+        "current_tiendanube_stock": 623,
+        "current_shopify_stock": 623,
+        "last_update": "2025-04-17T13:32:01.766454"
+      },
+      "263909253-1170871495": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:32:03.550064",
+            "tiendanube_stock": 101,
+            "shopify_stock": 101
+          },
+          {
+            "timestamp": "2025-04-17T13:33:54.119353",
+            "tiendanube_stock": 115,
+            "shopify_stock": 115
+          }
+        ],
+        "current_tiendanube_stock": 115,
+        "current_shopify_stock": 115,
+        "last_update": "2025-04-17T13:33:54.119353"
+      },
+      "263909253-1170871502": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:32:05.235637",
+            "tiendanube_stock": 101,
+            "shopify_stock": 101
+          },
+          {
+            "timestamp": "2025-04-17T13:33:55.812503",
+            "tiendanube_stock": 115,
+            "shopify_stock": 115
+          }
+        ],
+        "current_tiendanube_stock": 115,
+        "current_shopify_stock": 115,
+        "last_update": "2025-04-17T13:33:55.812503"
+      },
+      "263909253-1178670540": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:32:07.037912",
+            "tiendanube_stock": 99,
+            "shopify_stock": 99
+          }
+        ],
+        "current_tiendanube_stock": 99,
+        "current_shopify_stock": 99,
+        "last_update": "2025-04-17T13:32:07.037912"
+      },
+      "252417560": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:36:30.385459",
+            "tiendanube_stock": 623,
+            "shopify_stock": 623
+          },
+          {
+            "timestamp": "2025-04-17T13:41:31.072053",
+            "tiendanube_stock": 623,
+            "shopify_stock": 623
+          },
+          {
+            "timestamp": "2025-04-22T17:51:55.644137",
+            "tiendanube_stock": 623,
+            "shopify_stock": 623
+          }
+        ],
+        "current_tiendanube_stock": 623,
+        "current_shopify_stock": 623,
+        "last_update": "2025-04-22T17:51:55.644137"
+      },
+      "263909253": {
+        "history": [
+          {
+            "timestamp": "2025-04-17T13:36:35.794732",
+            "tiendanube_stock": 329,
+            "shopify_stock": 329
+          },
+          {
+            "timestamp": "2025-04-17T13:41:36.754535",
+            "tiendanube_stock": 329,
+            "shopify_stock": 329
+          },
+          {
+            "timestamp": "2025-04-22T17:52:04.501954",
+            "tiendanube_stock": 412,
+            "shopify_stock": 412
+          }
+        ],
+        "current_tiendanube_stock": 412,
+        "current_shopify_stock": 412,
+        "last_update": "2025-04-22T17:52:04.501954"
+      }
+    }
+  }
+}

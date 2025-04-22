@@ -26,6 +26,177 @@ class ShopifyAPI:
             'X-Shopify-Access-Token': self.access_token,
             'Content-Type': 'application/json'
         }
+        
+        # Obtener y almacenar la ubicación principal
+        self.shop_location_id = self._get_shop_location_id()
+
+    def _get_shop_location_id(self) -> str:
+        """
+        Obtiene el ID de la ubicación principal de la tienda
+        
+        Returns:
+            str: ID de la ubicación principal
+        """
+        try:
+            response = requests.get(
+                f"{self.api_url}/locations.json",
+                headers=self.headers
+            )
+            response.raise_for_status()
+            
+            locations = response.json().get('locations', [])
+            main_location = next(
+                (loc for loc in locations if loc['name'] == 'Shop location'),
+                None
+            )
+            
+            if not main_location:
+                raise ValueError("No se encontró la ubicación 'Shop location'")
+                
+            return main_location['id']
+            
+        except Exception as e:
+            print(f"Error al obtener ubicación principal: {e}")
+            raise
+
+    def find_variant_by_sku(self, sku: str) -> Dict:
+        """
+        Busca una variante por su SKU
+        
+        Args:
+            sku (str): SKU de la variante a buscar
+            
+        Returns:
+            Dict: Datos de la variante encontrada o None si no existe
+        """
+        try:
+            # Buscar la variante usando la API de variantes
+            response = requests.get(
+                f"{self.api_url}/variants.json",
+                headers=self.headers,
+                params={'sku': sku}
+            )
+            response.raise_for_status()
+            
+            variants = response.json().get('variants', [])
+            if variants:
+                return variants[0]
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error al buscar variante por SKU {sku}: {e}")
+            return None
+
+    def get_variant_stock(self, variant_id: str) -> int:
+        """
+        Obtiene el stock actual de una variante
+        
+        Args:
+            variant_id (str): ID de la variante
+            
+        Returns:
+            int: Cantidad en stock
+        """
+        try:
+            # Primero obtener el inventory_item_id de la variante
+            response = requests.get(
+                f"{self.api_url}/variants/{variant_id}.json",
+                headers=self.headers
+            )
+            response.raise_for_status()
+            
+            variant = response.json().get('variant', {})
+            inventory_item_id = variant.get('inventory_item_id')
+            
+            if not inventory_item_id:
+                return 0
+            
+            # Obtener el nivel de inventario
+            response = requests.get(
+                f"{self.api_url}/inventory_levels.json",
+                headers=self.headers,
+                params={
+                    'inventory_item_ids': inventory_item_id,
+                    'location_ids': self.shop_location_id
+                }
+            )
+            response.raise_for_status()
+            
+            levels = response.json().get('inventory_levels', [])
+            if levels:
+                return levels[0].get('available', 0)
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error al obtener stock de la variante {variant_id}: {e}")
+            return 0
+
+    def update_variant_stock(self, variant_id: str, new_quantity: int) -> bool:
+        """
+        Actualiza el stock de una variante
+        
+        Args:
+            variant_id (str): ID de la variante
+            new_quantity (int): Nueva cantidad de stock
+            
+        Returns:
+            bool: True si se actualizó correctamente
+        """
+        try:
+            print(f"\n🔄 Actualizando stock de variante {variant_id} a {new_quantity}")
+            
+            # Primero obtener el inventory_item_id de la variante
+            response = requests.get(
+                f"{self.api_url}/variants/{variant_id}.json",
+                headers=self.headers
+            )
+            response.raise_for_status()
+            
+            variant = response.json().get('variant', {})
+            inventory_item_id = variant.get('inventory_item_id')
+            
+            if not inventory_item_id:
+                print(f"❌ No se encontró inventory_item_id para la variante {variant_id}")
+                return False
+            
+            print(f"✅ Encontrado inventory_item_id: {inventory_item_id}")
+            
+            # Actualizar el nivel de inventario
+            update_url = f"{self.api_url}/inventory_levels/set.json"
+            update_data = {
+                'inventory_item_id': inventory_item_id,
+                'location_id': self.shop_location_id,
+                'available': int(new_quantity)
+            }
+            
+            print(f"📤 Enviando actualización a Shopify:")
+            print(f"   URL: {update_url}")
+            print(f"   Datos: {json.dumps(update_data, indent=2)}")
+            
+            response = requests.post(
+                update_url,
+                headers=self.headers,
+                json=update_data
+            )
+            
+            if response.status_code != 200:
+                print(f"❌ Error al actualizar stock. Código: {response.status_code}")
+                print(f"   Respuesta: {response.text}")
+                return False
+                
+            result = response.json()
+            print(f"✅ Stock actualizado correctamente")
+            print(f"   Respuesta: {json.dumps(result, indent=2)}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error al actualizar stock de la variante {variant_id}: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   Respuesta del servidor: {e.response.text}")
+            return False
 
     def create_product(self, tiendanube_product: Dict) -> Dict:
         """
@@ -138,32 +309,90 @@ class ShopifyAPI:
             print(f"Producto: {json.dumps(shopify_product, indent=2)}")
             raise
 
-    def sync_products_from_tiendanube(self, tiendanube_products: List[Dict]) -> List[Dict]:
+    def sync_products_from_tiendanube(self, tiendanube_product: Dict) -> bool:
         """
-        Sincroniza una lista de productos desde Tiendanube a Shopify
+        Sincroniza un producto desde Tiendanube a Shopify, actualizando stock si existe
+        o creando el producto si no existe
         
         Args:
-            tiendanube_products (List[Dict]): Lista de productos de Tiendanube
+            tiendanube_product (Dict): Producto de Tiendanube con su información y variantes
             
         Returns:
-            List[Dict]: Lista de productos creados en Shopify
+            bool: True si se actualizó/creó correctamente
         """
-        created_products = []
-        
-        for product in tiendanube_products:
-            try:
-                print(f"\nSincronizando producto de Tiendanube ID: {product.get('id')}")
-                shopify_product = self.create_product(product)
-                created_products.append(shopify_product)
-                print(f"✅ Producto creado en Shopify: {shopify_product.get('product', {}).get('title')}")
-                print(f"SKUs generados para las variantes:")
-                for variant in shopify_product.get('product', {}).get('variants', []):
-                    print(f"- SKU: {variant.get('sku')}")
-            except Exception as e:
-                print(f"❌ Error al sincronizar producto {product.get('id')}: {e}")
-                continue
-        
-        return created_products
+        try:
+            tiendanube_id = str(tiendanube_product.get('id'))
+            print(f"\n🔄 Sincronizando producto de Tiendanube ID: {tiendanube_id}")
+            
+            # Verificar si el producto existe buscando por variantes
+            product_exists = False
+            variants = tiendanube_product.get('variants', [])
+            
+            if variants:
+                for variant in variants:
+                    variant_id = str(variant.get('id'))
+                    sku = f"{tiendanube_id}-{variant_id}"
+                    print(f"\n🔍 Buscando variante con SKU: {sku}")
+                    
+                    shopify_variant = self.find_variant_by_sku(sku)
+                    
+                    if shopify_variant:
+                        product_exists = True
+                        print(f"✅ Variante encontrada en Shopify - ID: {shopify_variant['id']}")
+                        
+                        current_stock = self.get_variant_stock(shopify_variant['id'])
+                        new_stock = variant.get('stock', 0)
+                        
+                        print(f"📊 Stock actual en Shopify: {current_stock}")
+                        print(f"📊 Nuevo stock de Tiendanube: {new_stock}")
+                        
+                        # Forzar actualización de stock
+                        if self.update_variant_stock(shopify_variant['id'], new_stock):
+                            print(f"✅ Stock actualizado correctamente")
+                        else:
+                            print(f"❌ Error al actualizar stock")
+                            return False
+                    else:
+                        print(f"❌ Variante no encontrada en Shopify")
+            else:
+                # Producto simple
+                sku = tiendanube_id
+                print(f"\n🔍 Buscando producto simple con SKU: {sku}")
+                
+                shopify_variant = self.find_variant_by_sku(sku)
+                
+                if shopify_variant:
+                    product_exists = True
+                    print(f"✅ Producto encontrado en Shopify - ID: {shopify_variant['id']}")
+                    
+                    current_stock = self.get_variant_stock(shopify_variant['id'])
+                    new_stock = tiendanube_product.get('stock', 0)
+                    
+                    print(f"📊 Stock actual en Shopify: {current_stock}")
+                    print(f"📊 Nuevo stock de Tiendanube: {new_stock}")
+                    
+                    # Forzar actualización de stock
+                    if self.update_variant_stock(shopify_variant['id'], new_stock):
+                        print(f"✅ Stock actualizado correctamente")
+                    else:
+                        print(f"❌ Error al actualizar stock")
+                        return False
+                else:
+                    print(f"❌ Producto no encontrado en Shopify")
+            
+            # Si el producto no existe, crearlo
+            if not product_exists:
+                print(f"🆕 Creando nuevo producto en Shopify")
+                shopify_product = self.create_product(tiendanube_product)
+                print(f"✅ Producto creado: {shopify_product.get('product', {}).get('title')}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error al sincronizar producto {tiendanube_product.get('id')}: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   Respuesta del servidor: {e.response.text}")
+            return False
 
     def get_products(self, limit=50) -> List[Dict]:
         """
