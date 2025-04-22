@@ -4,21 +4,30 @@ import time
 from typing import Dict, List, Optional
 import requests
 from dotenv import load_dotenv
+<<<<<<< HEAD
 from src.store_config import StoreConfig
 from src.shopify import ShopifyAPI
 from src.tiendanube import TiendanubeAPI
 from src.stock_tracker import StockTracker
 from src.stock_database import StockDatabase
+=======
+from stock_cache_manager import StockCacheManager
+import logging
+>>>>>>> 5e26fc79081e2488caab237c9e7a924862fd82ba
 
 # Cargar variables de entorno
 load_dotenv()
 
+<<<<<<< HEAD
 # Inicializar el tracker de stock si estamos en modo validación
 VALIDATE_STOCK = os.environ.get('STOCK_VALIDATION') == '1'
 stock_tracker = StockTracker() if VALIDATE_STOCK else None
 
 # Inicializar la base de datos de stock
 stock_db = StockDatabase()
+=======
+logger = logging.getLogger(__name__)
+>>>>>>> 5e26fc79081e2488caab237c9e7a924862fd82ba
 
 class InventorySync:
     def __init__(self, store_config: Dict):
@@ -41,6 +50,10 @@ class InventorySync:
         self.productos_sin_cambios = 0
         self.productos_no_encontrados = 0
         self.variantes_creadas = 0
+        
+        # Inicializar el gestor de caché
+        store_id = tiendanube_credentials['base_url'].split('/')[-1]
+        self.cache_manager = StockCacheManager(f"stock_cache_{store_id}.json")
         
         print("✅ Inicialización completada")
         print(f"🔹 URL Tiendanube: {store_config['api_url']}")
@@ -142,6 +155,7 @@ class InventorySync:
         """Establece el inventario de un producto en Shopify"""
         if current_quantity == new_quantity:
             print(f"ℹ️ Stock sin cambios para producto ID: {product_info['product_id']}-{product_info['variant_id']} (Stock: {current_quantity})")
+            self.productos_sin_cambios += 1
             return False
 
         try:
@@ -181,6 +195,7 @@ class InventorySync:
             print(f"❌ Error al obtener ubicaciones: {str(e)}")
             raise
 
+<<<<<<< HEAD
     def find_shopify_product_by_tiendanube_id(self, tiendanube_id: str) -> Optional[Dict]:
         """Busca un producto en Shopify por el ID de Tiendanube usando SKU"""
         try:
@@ -274,9 +289,18 @@ class InventorySync:
 
     def sync_inventory(self):
         """Sincroniza el inventario desde Tiendanube hacia Shopify"""
+=======
+    def create_variant(self, product_id: str, variant_data: Dict) -> Dict:
+        """Crea una nueva variante para un producto existente en Shopify"""
+>>>>>>> 5e26fc79081e2488caab237c9e7a924862fd82ba
         try:
-            print("\n🔄 Iniciando sincronización de inventario...")
+            response = self._make_shopify_request(
+                'POST',
+                f'products/{product_id}/variants.json',
+                json={'variant': variant_data}
+            )
             
+<<<<<<< HEAD
             # Reiniciar contadores
             self.productos_actualizados = 0
             self.productos_sin_cambios = 0
@@ -404,10 +428,18 @@ class InventorySync:
             print(f"- Productos no encontrados: {self.productos_no_encontrados}")
             print(f"- Variantes nuevas creadas: {self.variantes_creadas}")
 
+=======
+            if response.status_code != 201:
+                raise Exception(f'Error al crear variante: {response.text}')
+                
+            return response.json()['variant']
+            
+>>>>>>> 5e26fc79081e2488caab237c9e7a924862fd82ba
         except Exception as e:
-            print(f"\n❌ Error durante la sincronización: {str(e)}")
+            print(f"❌ Error al crear variante: {str(e)}")
             raise
 
+<<<<<<< HEAD
 def should_update_stock(store_id: str, product_id: str, new_stock: int) -> bool:
     """
     Determina si se debe actualizar el stock basado en el último valor conocido
@@ -516,6 +548,135 @@ def sync_inventory(store_config: Dict):
     except Exception as e:
         print(f"❌ Error general en la sincronización: {str(e)}")
         raise
+=======
+    def set_tiendanube_stock(self, product_id: str, variant_id: str, new_quantity: int, current_quantity: int):
+        """Establece el inventario de un producto en Tiendanube"""
+        if current_quantity == new_quantity:
+            print(f"ℹ️ Stock sin cambios en Tiendanube para producto ID: {product_id}-{variant_id} (Stock: {current_quantity})")
+            return False
+
+        try:
+            # Para productos con variantes
+            if variant_id != "0":
+                url = f'{self.tiendanube_base_url}/products/{product_id}/variants/{variant_id}'
+                data = {'stock': new_quantity}
+            # Para productos simples
+            else:
+                url = f'{self.tiendanube_base_url}/products/{product_id}'
+                data = {'stock': new_quantity}
+
+            response = requests.put(url, headers=self.tiendanube_headers, json=data)
+            
+            if response.status_code != 200:
+                raise Exception(f'Error al actualizar inventario: {response.text}')
+                
+            print(f"✅ Stock actualizado en Tiendanube - Producto ID: {product_id}-{variant_id} | {current_quantity} → {new_quantity}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error al actualizar inventario en Tiendanube para producto ID: {product_id}-{variant_id}: {str(e)}")
+            return False
+
+    def sync_inventory(self):
+        """
+        Sincroniza el inventario entre Tiendanube y Shopify usando el caché de stock
+        """
+        logger.info("Iniciando sincronización de inventario")
+        
+        # Obtenemos productos de ambas plataformas
+        tiendanube_products = self.get_tiendanube_products()
+        logger.info(f"Productos encontrados en Tiendanube: {len(tiendanube_products)}")
+        
+        shopify_products = self.get_shopify_products()
+        logger.info(f"Productos encontrados en Shopify: {len(shopify_products)}")
+        
+        # Obtenemos la ubicación principal de Shopify
+        locations = self.get_shopify_locations()
+        shop_location = next((loc for loc in locations if loc['name'] == 'Shop location'), None)
+        if not shop_location:
+            raise Exception("No se encontró la ubicación 'Shop location'")
+        
+        logger.info(f"Ubicación de Shopify encontrada: {shop_location['name']} ({shop_location['id']})")
+        
+        # Mapeamos productos por SKU para fácil acceso
+        shopify_by_sku = {}
+        total_variants = 0
+        for product in shopify_products:
+            for variant in product.get('variants', []):
+                if variant.get('sku'):
+                    total_variants += 1
+                    shopify_by_sku[variant['sku']] = {
+                        'inventory_item_id': variant['inventory_item_id'],
+                        'location_id': shop_location['id'],
+                        'product_id': product['id'],
+                        'variant_id': variant['id']
+                    }
+        
+        logger.info(f"Total de variantes en Shopify: {total_variants}")
+        logger.info(f"SKUs mapeados: {len(shopify_by_sku)}")
+        
+        for tn_product in tiendanube_products:
+            product_id = str(tn_product['id'])
+            logger.info(f"\nProcesando producto Tiendanube ID: {product_id}")
+            
+            # Procesamos cada variante
+            variants = tn_product.get('variants', [])
+            logger.info(f"Variantes encontradas: {len(variants)}")
+            
+            for variant in variants:
+                variant_id = str(variant['id'])
+                sku = f"{product_id}-{variant_id}"
+                current_stock = variant.get('stock', 0)
+                
+                logger.info(f"Procesando variante: {sku} (Stock actual: {current_stock})")
+                
+                # Si no existe en Shopify, continuamos
+                if sku not in shopify_by_sku:
+                    logger.warning(f"SKU {sku} no encontrado en Shopify")
+                    continue
+                    
+                shopify_variant = shopify_by_sku[sku]
+                shopify_stock = self.get_shopify_inventory_level(
+                    shopify_variant['inventory_item_id'],
+                    shopify_variant['location_id']
+                )
+                
+                logger.info(f"Stock en Shopify: {shopify_stock}")
+                
+                # Verificamos si debemos actualizar Shopify
+                shopify_updated = False
+                if self.cache_manager.should_update_shopify(product_id, variant_id, current_stock, shopify_stock):
+                    logger.info(f"Actualizando stock en Shopify para SKU {sku}: {current_stock}")
+                    if self.set_shopify_inventory(
+                        shopify_variant['inventory_item_id'],
+                        shopify_variant['location_id'],
+                        current_stock,
+                        shopify_stock,
+                        shopify_variant
+                    ):
+                        self.productos_actualizados += 1
+                        self.cache_manager.update_stock(product_id, variant_id, current_stock, current_stock)
+                        logger.info("✅ Stock actualizado en Shopify")
+                        shopify_updated = True
+                else:
+                    self.productos_sin_cambios += 1
+                    logger.info("ℹ️ No es necesario actualizar Shopify")
+                
+                # Solo verificamos Shopify si no se actualizó previamente
+                if not shopify_updated:
+                    # Verificamos si debemos actualizar Tiendanube (cuando Shopify tiene menos stock)
+                    if self.cache_manager.should_update_tiendanube(product_id, variant_id, current_stock, shopify_stock):
+                        logger.info(f"Actualizando stock en Tiendanube para SKU {sku}: {shopify_stock}")
+                        if self.set_tiendanube_stock(product_id, variant_id, shopify_stock, current_stock):
+                            self.cache_manager.update_stock(product_id, variant_id, shopify_stock, shopify_stock)
+                            logger.info("✅ Stock actualizado en Tiendanube")
+                    
+        logger.info("\n=== Resumen de sincronización ===")
+        logger.info(f"Productos actualizados: {self.productos_actualizados}")
+        logger.info(f"Productos sin cambios: {self.productos_sin_cambios}")
+        logger.info(f"Productos no encontrados: {self.productos_no_encontrados}")
+        logger.info("Sincronización de inventario completada")
+>>>>>>> 5e26fc79081e2488caab237c9e7a924862fd82ba
 
 def main():
     try:

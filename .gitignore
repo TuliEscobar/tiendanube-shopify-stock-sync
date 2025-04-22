@@ -22,9 +22,15 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+*.log
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo 
+
+# Project specific
+blueprint.json
+stock_cache*.json
+stock_history.json

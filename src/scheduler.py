@@ -127,7 +127,7 @@ def run_both_syncs():
     print("\n✅ Proceso de sincronización completado")
 
 def main():
-    # Configurar salida UTF-8
+    # Configurar salida UTF-8 para Windows
     if sys.platform == 'win32':
         sys.stdout.reconfigure(encoding='utf-8')
     
@@ -152,10 +152,8 @@ def main():
             print("\n[INFO] Deteniendo el programador...")
             break
         except Exception as e:
-            print(f"[ERROR] Error en el programador: {e}")
-            # Esperar 5 minutos antes de reintentar en caso de error
-            time.sleep(300)
-            continue
+            print(f"\n[ERROR] Error inesperado: {e}")
+            time.sleep(60)  # Esperar 1 minuto antes de reintentar
 
 if __name__ == "__main__":
     main() 

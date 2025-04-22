@@ -6,11 +6,11 @@ from src.shopify import ShopifyAPI
 
 def main():
     # Cargar variables de entorno
-    load_dotenv('src/.env')
+    load_dotenv()
     
     try:
         # Inicializar APIs
-        tiendanube = TiendanubeAPI(store_number=1)
+        tiendanube = TiendanubeAPI()  # Usará la primera configuración del .env
         shopify = ShopifyAPI()
         
         # Obtener productos de Tiendanube
