@@ -35,6 +35,10 @@ class TiendanubeAPI:
         except:
             raise ValueError(f"No se pudo extraer el store_id de la URL: {self.api_url}")
             
+        # Asegurarse de que el token tenga el formato correcto
+        if not self.token.lower().startswith('bearer '):
+            self.token = f"bearer {self.token}"
+            
         self.headers = {
             'Authentication': self.token,
             'User-Agent': self.user_agent,
@@ -43,6 +47,7 @@ class TiendanubeAPI:
         
         print(f"✅ API de Tiendanube inicializada")
         print(f"🔹 URL Base: {self.api_url}")
+        print(f"🔹 Token: {self.token[:20]}...")
 
     def _make_request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, 
                      max_retries: int = 3, retry_delay: int = 1) -> requests.Response:
@@ -262,4 +267,43 @@ class TiendanubeAPI:
         else:
             raise Exception(
                 f"Error al eliminar variante {variant_id} del producto {product_id}: {response.text}"
-            ) 
+            )
+            
+    def update_variant_stock(self, product_id: Union[str, int], variant_id: Union[str, int], new_stock: int) -> bool:
+        """
+        Actualiza el stock de una variante
+        
+        Args:
+            product_id (Union[str, int]): ID del producto
+            variant_id (Union[str, int]): ID de la variante
+            new_stock (int): Nueva cantidad de stock
+            
+        Returns:
+            bool: True si se actualizó correctamente
+        """
+        try:
+            print(f"\n🔄 Actualizando stock de variante {variant_id} a {new_stock}")
+            
+            # Preparar datos de actualización
+            update_data = {'stock': new_stock}
+            
+            # Realizar la actualización
+            response = self._make_request(
+                'PUT',
+                f'products/{product_id}/variants/{variant_id}',
+                data=update_data
+            )
+            
+            if response.status_code == 200:
+                print(f"✅ Stock actualizado correctamente")
+                return True
+            else:
+                print(f"❌ Error al actualizar stock. Código: {response.status_code}")
+                print(f"   Respuesta: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error al actualizar stock de la variante {variant_id}: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   Respuesta del servidor: {e.response.text}")
+            return False 

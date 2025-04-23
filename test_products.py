@@ -21,7 +21,13 @@ def print_product_info(product):
             print(f"  - ID: {variant.get('id')}")
             print(f"    SKU: {variant.get('sku', 'Sin SKU')}")
             print(f"    Precio: ${variant.get('price')}")
-            print(f"    Stock: {variant.get('stock')}")
+            
+            # Verificar si el stock es infinito
+            stock = variant.get('stock')
+            if stock is None:
+                print(f"    Stock: ∞ (Infinito)")
+            else:
+                print(f"    Stock: {stock}")
     else:
         print("\nNo hay variantes disponibles")
     print("-" * 50)
@@ -31,7 +37,7 @@ def get_all_products(tienda):
     return tienda.get_products()
 
 def main():
-    # Inicializar la configuración de tiendas desde Excel
+    # Inicializar la configuración de tiendas desde .env
     store_config = StoreConfig()
     stores = store_config.get_all_stores()
     
@@ -40,12 +46,15 @@ def main():
     for i, store in enumerate(stores, 1):
         print(f"\n{'='*20} Tienda {i} {'='*20}")
         print(f"URL: {store['api_url']}")
-        print(f"Categoría: {store['category']}")
-        print(f"Remarcas configuradas: {store['markups']}")
+        print(f"Categoría: {store.get('category', 'No especificada')}")
         
         try:
-            # Crear instancia de la tienda
-            tienda = TiendanubeAPI(api_url=store['api_url'])
+            # Crear instancia de la tienda con las credenciales completas
+            tienda = TiendanubeAPI(
+                api_url=store['api_url'],
+                token=store['token'],
+                user_agent=store['user_agent']
+            )
             
             # Obtener todos los productos con sus variantes
             productos = get_all_products(tienda)
