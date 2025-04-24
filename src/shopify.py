@@ -61,7 +61,7 @@ class ShopifyAPI:
         Busca un producto por SKU
         
         Args:
-            sku (str): SKU a buscar
+            sku (str): SKU a buscar (ID del producto en Tiendanube)
             
         Returns:
             Optional[Dict]: Producto encontrado o None
@@ -74,9 +74,9 @@ class ShopifyAPI:
         
         products = response.json()['products']
         for product in products:
-            for variant in product.get('variants', []):
-                if variant.get('sku') == sku:
-                    return product
+            # Buscamos el SKU en la primera variante
+            if product.get('variants') and product['variants'][0].get('sku') == sku:
+                return product
         return None
 
     def update_variant_stock(self, inventory_item_id: str, location_id: str, new_quantity: int) -> bool:
@@ -123,41 +123,38 @@ class ShopifyAPI:
             if not shop_location:
                 raise Exception("No se encontró la ubicación 'Shop location'")
             
-            # Procesar cada variante
+            # El SKU es el ID del producto de Tiendanube
+            sku = str(product['id'])
+            
+            # Buscar producto en Shopify
+            shopify_product = self.find_product_by_sku(sku)
+            if not shopify_product:
+                print(f"❌ No se encontró el producto con SKU: {sku}")
+                return False
+            
+            # Obtener la primera variante de Shopify (asumimos que es la única)
+            shopify_variant = shopify_product['variants'][0]
+            
+            # Calcular el stock total sumando el stock de todas las variantes de Tiendanube
+            total_stock = 0
             for variant in product.get('variants', []):
-                # Crear SKU compuesto
-                sku = f"{product['id']}-{variant['id']}"
-                
-                # Buscar producto en Shopify
-                shopify_product = self.find_product_by_sku(sku)
-                if not shopify_product:
-                    print(f"❌ No se encontró el producto con SKU: {sku}")
-                    continue
-                
-                # Obtener la variante de Shopify
-                shopify_variant = next(
-                    (v for v in shopify_product['variants'] if v['sku'] == sku),
-                    None
-                )
-                if not shopify_variant:
-                    print(f"❌ No se encontró la variante con SKU: {sku}")
-                    continue
-                
-                # Actualizar stock
                 stock = variant.get('stock', 0)
-                if stock is None:
-                    stock = 999
-                
-                success = self.update_variant_stock(
-                    shopify_variant['inventory_item_id'],
-                    shop_location['id'],
-                    stock
-                )
-                
-                if success:
-                    print(f"✅ Stock actualizado para SKU {sku}: {stock}")
-                
-            return True
+                if stock is None:  # Stock infinito
+                    total_stock = 999
+                    break
+                total_stock += stock
+            
+            # Actualizar stock
+            success = self.update_variant_stock(
+                shopify_variant['inventory_item_id'],
+                shop_location['id'],
+                total_stock
+            )
+            
+            if success:
+                print(f"✅ Stock actualizado para SKU {sku}: {total_stock}")
+            
+            return success
             
         except Exception as e:
             print(f"❌ Error sincronizando producto {product.get('id')}: {e}")

@@ -8,6 +8,7 @@ Este proyecto sincroniza el stock de productos entre Tiendanube y Shopify, mante
 - Manejo de stock infinito (convierte stock `null` de Tiendanube a 999 en Shopify)
 - Soporte para múltiples tiendas Tiendanube
 - Programador de tareas para sincronización automática cada hora
+- Suma automática del stock de todas las variantes de Tiendanube
 
 ## Requisitos
 
@@ -19,8 +20,8 @@ Este proyecto sincroniza el stock de productos entre Tiendanube y Shopify, mante
 
 1. Clonar el repositorio:
 ```bash
-git clone [url-del-repositorio]
-cd [nombre-del-directorio]
+git clone https://github.com/TuliEscobar/tiendanube-shopify-stock-sync.git
+cd tiendanube-shopify-stock-sync
 ```
 
 2. Instalar dependencias:
@@ -75,12 +76,15 @@ python scheduler.py
 1. El script carga la configuración de las tiendas desde el archivo `.env`
 2. Para cada tienda configurada:
    - Obtiene los productos de Tiendanube
-   - Si encuentra stock infinito (null), lo convierte a 999
-   - Busca el producto correspondiente en Shopify por SKU
-   - Actualiza el stock en Shopify
+   - Suma el stock de todas las variantes de cada producto
+   - Si alguna variante tiene stock infinito (null), establece el total en 999
+   - Busca el producto correspondiente en Shopify usando el ID de Tiendanube como SKU
+   - Actualiza el stock total en la variante única de Shopify
 
 ## Notas Importantes
 
-- Los SKUs en Shopify deben seguir el formato: `{tiendanube_product_id}-{tiendanube_variant_id}`
+- Los productos en Shopify deben tener como SKU el ID del producto en Tiendanube
+- Cada producto en Shopify debe tener una sola variante
 - Se requiere una ubicación en Shopify llamada "Shop location"
-- El stock infinito en Tiendanube (null) se convierte a 999 en Shopify 
+- El stock infinito en Tiendanube (null) se convierte a 999 en Shopify
+- El stock total en Shopify será la suma de todas las variantes en Tiendanube 
