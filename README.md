@@ -8,7 +8,8 @@ Este proyecto sincroniza el stock de productos entre Tiendanube y Shopify, mante
 - Manejo de stock infinito (convierte stock `null` de Tiendanube a 999 en Shopify)
 - Soporte para múltiples tiendas Tiendanube
 - Programador de tareas para sincronización automática cada hora
-- Suma automática del stock de todas las variantes de Tiendanube
+- Manejo individual de variantes y sus SKUs
+- Sistema robusto de manejo de errores y estadísticas por tienda
 
 ## Requisitos
 
@@ -29,7 +30,7 @@ cd tiendanube-shopify-stock-sync
 pip install -r requirements.txt
 ```
 
-3. Configurar el archivo `.env` en la carpeta `src`:
+3. Configurar el archivo `.env` en la raíz del proyecto:
 ```env
 # Configuración de Shopify
 SHOPIFY_STORE_URL=https://tu-tienda.myshopify.com/admin/api/2023-01
@@ -41,6 +42,13 @@ TIENDANUBE_CREDENTIALS=[
     "base_url": "https://api.tiendanube.com/v1/123456",
     "headers": {
       "Authentication": "bearer tu-token-de-tiendanube",
+      "User-Agent": "Tu Aplicación (email@ejemplo.com)"
+    }
+  },
+  {
+    "base_url": "https://api.tiendanube.com/v1/789012",
+    "headers": {
+      "Authentication": "bearer otro-token-de-tiendanube",
       "User-Agent": "Tu Aplicación (email@ejemplo.com)"
     }
   }
@@ -76,15 +84,28 @@ python scheduler.py
 1. El script carga la configuración de las tiendas desde el archivo `.env`
 2. Para cada tienda configurada:
    - Obtiene los productos de Tiendanube
-   - Suma el stock de todas las variantes de cada producto
-   - Si alguna variante tiene stock infinito (null), establece el total en 999
-   - Busca el producto correspondiente en Shopify usando el ID de Tiendanube como SKU
-   - Actualiza el stock total en la variante única de Shopify
+   - Procesa cada producto y sus variantes:
+     - Si una variante tiene stock infinito (null), lo establece en 999
+     - Asigna el ID de la variante como SKU
+   - Busca el producto correspondiente en Shopify usando el SKU
+   - Actualiza el stock en Shopify manteniendo la relación 1:1 entre variantes
+   - Mantiene estadísticas individuales por tienda
 
 ## Notas Importantes
 
-- Los productos en Shopify deben tener como SKU el ID del producto en Tiendanube
-- Cada producto en Shopify debe tener una sola variante
+- Los SKUs en Shopify se asignan automáticamente:
+  - Para productos con variantes: el SKU es el ID de la variante de Tiendanube
+  - Para productos sin variantes: el SKU es el ID del producto de Tiendanube
 - Se requiere una ubicación en Shopify llamada "Shop location"
 - El stock infinito en Tiendanube (null) se convierte a 999 en Shopify
-- El stock total en Shopify será la suma de todas las variantes en Tiendanube 
+- Cada tienda mantiene sus propias estadísticas y registro de errores
+- El sistema es tolerante a fallos: si una tienda falla, continúa con las demás
+
+## Logs y Monitoreo
+
+El sistema proporciona información detallada durante la sincronización:
+- Número de productos encontrados por tienda
+- Estado de sincronización de cada producto
+- Conversiones de stock infinito
+- Estadísticas globales y por tienda
+- Errores detallados en caso de fallos 

@@ -7,134 +7,118 @@ from .store_config import StoreConfig
 import time
 
 class TiendanubeAPI:
-    def __init__(self, api_url: str = None, token: str = None, user_agent: str = None, store_config: Dict = None):
+    def __init__(self, api_url: str = None, token: str = None, user_agent: str = None):
         """
-        Inicializa la API de Tiendanube con credenciales o configuración de tienda
+        Inicializa la API de Tiendanube
         
         Args:
-            api_url (str, optional): URL base de la API. Defaults to None.
-            token (str, optional): Token de autenticación. Defaults to None.
-            user_agent (str, optional): User agent para las peticiones. Defaults to None.
-            store_config (Dict, optional): Configuración completa de la tienda. Defaults to None.
+            api_url (str, optional): URL base de la API. Si no se proporciona, se usa TIENDANUBE_STORE_ID
+            token (str, optional): Token de acceso. Si no se proporciona, se usa TIENDANUBE_ACCESS_TOKEN
+            user_agent (str, optional): User Agent para las peticiones
         """
-        if store_config:
-            self.api_url = str(store_config.get('api_url', '')).rstrip('/')
-            self.token = store_config.get('token', '')
-            self.user_agent = store_config.get('user_agent', '')
-        else:
-            self.api_url = api_url.rstrip('/') if api_url else None
-            self.token = token
-            self.user_agent = user_agent or 'Conexion a Tienda Nube (devs.tiendaonline@gmail.com)'
+        load_dotenv()
+        
+        # Si no se proporcionan parámetros, usar variables de entorno
+        if not api_url:
+            store_id = os.getenv('TIENDANUBE_STORE_ID')
+            if not store_id:
+                raise ValueError("TIENDANUBE_STORE_ID no está configurado en .env")
+            api_url = f"https://api.tiendanube.com/v1/{store_id}"
             
-        if not self.api_url or not self.token:
-            raise ValueError("Se requiere api_url y token")
+        if not token:
+            token = os.getenv('TIENDANUBE_ACCESS_TOKEN')
+            if not token:
+                raise ValueError("TIENDANUBE_ACCESS_TOKEN no está configurado en .env")
+                
+        if not user_agent:
+            user_agent = 'Stock Sync App (tuli.escobar@gmail.com)'
             
-        # Extraer el store_id de la URL de la API
-        try:
-            self.store_id = self.api_url.split('/')[-1]
-        except:
-            raise ValueError(f"No se pudo extraer el store_id de la URL: {self.api_url}")
+        # Asegurar que el token tenga el prefijo "bearer"
+        if not token.lower().startswith('bearer '):
+            token = f"bearer {token}"
             
-        # Asegurarse de que el token tenga el formato correcto
-        if not self.token.lower().startswith('bearer '):
-            self.token = f"bearer {self.token}"
-            
+        self.api_url = api_url
         self.headers = {
-            'Authentication': self.token,
-            'User-Agent': self.user_agent,
-            'Content-Type': 'application/json'
+            'Authentication': token,
+            'Content-Type': 'application/json',
+            'User-Agent': user_agent
         }
         
-        print(f"✅ API de Tiendanube inicializada")
-        print(f"🔹 URL Base: {self.api_url}")
-        print(f"🔹 Token: {self.token[:20]}...")
+        print("✅ API de Tiendanube inicializada")
+        print(f"🔹 URL: {self.api_url}")
+        print(f"🔹 Token: {token[:20]}...")
 
-    def _make_request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, 
-                     max_retries: int = 3, retry_delay: int = 1) -> requests.Response:
+    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """
-        Realiza una petición HTTP a la API con reintentos
+        Realiza una petición a la API de Tiendanube
         
         Args:
-            method (str): Método HTTP (GET, POST, PUT, DELETE)
+            method (str): Método HTTP
             endpoint (str): Endpoint de la API
-            params (Dict, optional): Parámetros de query. Defaults to None.
-            data (Dict, optional): Datos para POST/PUT. Defaults to None.
-            max_retries (int, optional): Número máximo de reintentos. Defaults to 3.
-            retry_delay (int, optional): Segundos entre reintentos. Defaults to 1.
+            **kwargs: Argumentos adicionales para la petición
             
         Returns:
             requests.Response: Respuesta de la API
-            
-        Raises:
-            Exception: Si la petición falla después de todos los reintentos
         """
         url = f"{self.api_url}/{endpoint}"
+        response = requests.request(method, url, headers=self.headers, **kwargs)
         
-        for attempt in range(max_retries):
-            try:
-                response = requests.request(
-                    method=method,
-                    url=url,
-                    headers=self.headers,
-                    params=params,
-                    json=data
-                )
+        if response.status_code not in [200, 201]:
+            print(f"❌ Error en petición a Tiendanube: {response.status_code}")
+            print(f"   Respuesta: {response.text}")
+            raise Exception(f"Error en petición a Tiendanube: {response.status_code}")
+            
+        return response
+
+    def get_products(self) -> List[Dict]:
+        """
+        Obtiene todos los productos de la tienda
+        
+        Returns:
+            List[Dict]: Lista de productos
+        """
+        response = self._make_request('GET', 'products')
+        products = response.json()
+        
+        # Asegurar que los SKUs estén configurados correctamente
+        for product in products:
+            variants = product.get('variants', [])
+            if variants:
+                # Producto con variantes - usar ID de variante como SKU
+                for variant in variants:
+                    variant['sku'] = str(variant['id'])
+            else:
+                # Producto sin variantes - usar ID de producto como SKU
+                product['sku'] = str(product['id'])
+        
+        return products
+
+    def get_product(self, product_id: str) -> Optional[Dict]:
+        """
+        Obtiene un producto específico
+        
+        Args:
+            product_id (str): ID del producto
+            
+        Returns:
+            Optional[Dict]: Producto encontrado o None
+        """
+        try:
+            response = self._make_request('GET', f'products/{product_id}')
+            product = response.json()
+            
+            # Configurar SKUs
+            variants = product.get('variants', [])
+            if variants:
+                for variant in variants:
+                    variant['sku'] = str(variant['id'])
+            else:
+                product['sku'] = str(product['id'])
                 
-                # Si es exitoso o es un error que no se debe reintentar
-                if response.status_code < 500:
-                    return response
-                    
-            except requests.exceptions.RequestException as e:
-                if attempt == max_retries - 1:
-                    raise Exception(f"Error en la petición después de {max_retries} intentos: {str(e)}")
-                    
-            # Esperar antes de reintentar
-            time.sleep(retry_delay)
-            
-        raise Exception(f"Error en la petición después de {max_retries} intentos")
-        
-    def get_products(self, page: int = 1, per_page: int = 50, params: Dict = None) -> Dict:
-        """
-        Obtiene la lista de productos
-        
-        Args:
-            page (int, optional): Número de página. Defaults to 1.
-            per_page (int, optional): Productos por página. Defaults to 50.
-            params (Dict, optional): Parámetros adicionales. Defaults to None.
-            
-        Returns:
-            Dict: Respuesta de la API con los productos
-        """
-        all_params = {
-            'page': page,
-            'per_page': per_page
-        }
-        if params:
-            all_params.update(params)
-            
-        response = self._make_request('GET', 'products', params=all_params)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(f"Error al obtener productos: {response.text}")
-            
-    def get_product(self, product_id: Union[str, int]) -> Dict:
-        """
-        Obtiene los detalles de un producto específico
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            
-        Returns:
-            Dict: Detalles del producto
-        """
-        response = self._make_request('GET', f'products/{product_id}')
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(f"Error al obtener el producto {product_id}: {response.text}")
+            return product
+        except Exception as e:
+            print(f"❌ Error obteniendo producto {product_id}: {e}")
+            return None
             
     def create_product(self, product_data: Dict) -> Dict:
         """
