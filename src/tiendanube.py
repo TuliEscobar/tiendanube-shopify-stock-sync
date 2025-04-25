@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Union
 from dotenv import load_dotenv
 from .store_config import StoreConfig
 import time
+from datetime import datetime, timedelta
+import pytz
 
 class TiendanubeAPI:
     def __init__(self, api_url: str = None, token: str = None, user_agent: str = None):
@@ -46,7 +48,7 @@ class TiendanubeAPI:
         
         print("✅ API de Tiendanube inicializada")
         print(f"🔹 URL: {self.api_url}")
-        print(f"🔹 Token: {token[:20]}...")
+
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """
@@ -72,26 +74,85 @@ class TiendanubeAPI:
 
     def get_products(self) -> List[Dict]:
         """
-        Obtiene todos los productos de la tienda
+        Obtiene los productos modificados en los últimos 15 minutos
         
         Returns:
-            List[Dict]: Lista de productos
+            List[Dict]: Lista de productos actualizados
         """
-        response = self._make_request('GET', 'products')
-        products = response.json()
-        
-        # Asegurar que los SKUs estén configurados correctamente
-        for product in products:
-            variants = product.get('variants', [])
-            if variants:
-                # Producto con variantes - usar ID de variante como SKU
-                for variant in variants:
-                    variant['sku'] = str(variant['id'])
-            else:
-                # Producto sin variantes - usar ID de producto como SKU
-                product['sku'] = str(product['id'])
-        
-        return products
+        try:
+            # Calcular tiempo hace 15 minutos con formato ISO 8601 exacto
+            hora_actual = datetime.now(pytz.UTC)
+            quince_minutos = hora_actual - timedelta(minutes=15)
+            updated_at_min = quince_minutos.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            
+            # Parámetros de consulta
+            params = {
+                'q': '',
+                'per_page': 1,
+                'published': "true",
+                'min_stock': 1,
+                'updated_at_min': updated_at_min
+            }
+            
+            print(f"\n⏰ Información de fechas:")
+            print(f"🔹 Hora actual UTC: {hora_actual.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]}Z")
+            print(f"🔹 Buscando desde: {updated_at_min}")
+            
+            response = self._make_request('GET', 'products', params=params)
+            products = response.json()
+            
+            if not isinstance(products, list):
+                print("❌ Respuesta inesperada de la API:")
+                print(products)
+                return []
+            
+            print(f"\n📦 Productos encontrados: {len(products)}")
+            
+            # Imprimir información detallada de cada producto
+            for product in products:
+                print(f"\n🔍 Producto:")
+                print(f"   ID: {product.get('id')}")
+                print(f"   Nombre: {product.get('name', {}).get('es', 'Sin nombre')}")
+                ultima_actualizacion = product.get('updated_at', '')
+                print(f"   Última actualización: {ultima_actualizacion}")
+                
+                # Verificar si el producto está dentro del rango de 15 minutos
+                try:
+                    # Convertir la fecha de actualización a objeto datetime
+                    updated_at = datetime.strptime(ultima_actualizacion.replace('+0000', 'Z'), 
+                                                 '%Y-%m-%dT%H:%M:%S%z')
+                    diferencia = hora_actual - updated_at
+                    minutos_diferencia = diferencia.total_seconds() / 60
+                    print(f"   Minutos desde última actualización: {minutos_diferencia:.2f}")
+                except Exception as e:
+                    print(f"   ⚠️ Error procesando fecha: {str(e)}")
+            
+            # Filtrar productos con stock
+            filtered_products = []
+            for product in products:
+                variants = product.get('variants', [])
+                if variants:
+                    has_stock = any(
+                        variant.get('stock') is None or variant.get('stock', 0) > 0 
+                        for variant in variants
+                    )
+                    if has_stock:
+                        for variant in variants:
+                            variant['sku'] = str(variant['id'])
+                        filtered_products.append(product)
+                else:
+                    if product.get('stock') is None or product.get('stock', 0) > 0:
+                        product['sku'] = str(product['id'])
+                        filtered_products.append(product)
+            
+            print(f"\n✅ Productos con stock encontrados: {len(filtered_products)}")
+            return filtered_products
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo productos: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Respuesta de la API: {e.response.text}")
+            return []
 
     def get_product(self, product_id: str) -> Optional[Dict]:
         """
@@ -120,174 +181,3 @@ class TiendanubeAPI:
             print(f"❌ Error obteniendo producto {product_id}: {e}")
             return None
             
-    def create_product(self, product_data: Dict) -> Dict:
-        """
-        Crea un nuevo producto
-        
-        Args:
-            product_data (Dict): Datos del producto a crear
-            
-        Returns:
-            Dict: Producto creado
-        """
-        response = self._make_request('POST', 'products', data=product_data)
-        
-        if response.status_code == 201:
-            return response.json()
-        else:
-            raise Exception(f"Error al crear el producto: {response.text}")
-            
-    def update_product(self, product_id: Union[str, int], product_data: Dict) -> Dict:
-        """
-        Actualiza un producto existente
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            product_data (Dict): Datos actualizados del producto
-            
-        Returns:
-            Dict: Producto actualizado
-        """
-        response = self._make_request('PUT', f'products/{product_id}', data=product_data)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(f"Error al actualizar el producto {product_id}: {response.text}")
-            
-    def delete_product(self, product_id: Union[str, int]) -> bool:
-        """
-        Elimina un producto
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            
-        Returns:
-            bool: True si se eliminó correctamente
-        """
-        response = self._make_request('DELETE', f'products/{product_id}')
-        
-        if response.status_code == 200:
-            return True
-        else:
-            raise Exception(f"Error al eliminar el producto {product_id}: {response.text}")
-            
-    def get_variants(self, product_id: Union[str, int]) -> List[Dict]:
-        """
-        Obtiene las variantes de un producto
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            
-        Returns:
-            List[Dict]: Lista de variantes
-        """
-        response = self._make_request('GET', f'products/{product_id}/variants')
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(f"Error al obtener variantes del producto {product_id}: {response.text}")
-            
-    def create_variant(self, product_id: Union[str, int], variant_data: Dict) -> Dict:
-        """
-        Crea una nueva variante para un producto
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            variant_data (Dict): Datos de la variante
-            
-        Returns:
-            Dict: Variante creada
-        """
-        response = self._make_request('POST', f'products/{product_id}/variants', data=variant_data)
-        
-        if response.status_code == 201:
-            return response.json()
-        else:
-            raise Exception(f"Error al crear variante para el producto {product_id}: {response.text}")
-            
-    def update_variant(self, product_id: Union[str, int], variant_id: Union[str, int], 
-                      variant_data: Dict) -> Dict:
-        """
-        Actualiza una variante existente
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            variant_id (Union[str, int]): ID de la variante
-            variant_data (Dict): Datos actualizados de la variante
-            
-        Returns:
-            Dict: Variante actualizada
-        """
-        response = self._make_request(
-            'PUT', 
-            f'products/{product_id}/variants/{variant_id}', 
-            data=variant_data
-        )
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(
-                f"Error al actualizar variante {variant_id} del producto {product_id}: {response.text}"
-            )
-            
-    def delete_variant(self, product_id: Union[str, int], variant_id: Union[str, int]) -> bool:
-        """
-        Elimina una variante
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            variant_id (Union[str, int]): ID de la variante
-            
-        Returns:
-            bool: True si se eliminó correctamente
-        """
-        response = self._make_request('DELETE', f'products/{product_id}/variants/{variant_id}')
-        
-        if response.status_code == 200:
-            return True
-        else:
-            raise Exception(
-                f"Error al eliminar variante {variant_id} del producto {product_id}: {response.text}"
-            )
-            
-    def update_variant_stock(self, product_id: Union[str, int], variant_id: Union[str, int], new_stock: int) -> bool:
-        """
-        Actualiza el stock de una variante
-        
-        Args:
-            product_id (Union[str, int]): ID del producto
-            variant_id (Union[str, int]): ID de la variante
-            new_stock (int): Nueva cantidad de stock
-            
-        Returns:
-            bool: True si se actualizó correctamente
-        """
-        try:
-            print(f"\n🔄 Actualizando stock de variante {variant_id} a {new_stock}")
-            
-            # Preparar datos de actualización
-            update_data = {'stock': new_stock}
-            
-            # Realizar la actualización
-            response = self._make_request(
-                'PUT',
-                f'products/{product_id}/variants/{variant_id}',
-                data=update_data
-            )
-            
-            if response.status_code == 200:
-                print(f"✅ Stock actualizado correctamente")
-                return True
-            else:
-                print(f"❌ Error al actualizar stock. Código: {response.status_code}")
-                print(f"   Respuesta: {response.text}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error al actualizar stock de la variante {variant_id}: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"   Respuesta del servidor: {e.response.text}")
-            return False 

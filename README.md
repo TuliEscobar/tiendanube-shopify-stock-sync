@@ -5,6 +5,7 @@ Este proyecto sincroniza el stock de productos entre Tiendanube y Shopify, mante
 ## Características
 
 - Sincronización unidireccional de stock desde Tiendanube hacia Shopify
+- Sincronización optimizada: solo procesa productos modificados en los últimos 15 minutos
 - Manejo de stock infinito (convierte stock `null` de Tiendanube a 999 en Shopify)
 - Soporte para múltiples tiendas Tiendanube
 - Programador de tareas para sincronización automática cada hora
@@ -83,7 +84,8 @@ python scheduler.py
 
 1. El script carga la configuración de las tiendas desde el archivo `.env`
 2. Para cada tienda configurada:
-   - Obtiene los productos de Tiendanube
+   - Obtiene los productos modificados en los últimos 15 minutos
+   - Filtra productos publicados con stock mínimo de 1
    - Procesa cada producto y sus variantes:
      - Si una variante tiene stock infinito (null), lo establece en 999
      - Asigna el ID de la variante como SKU
@@ -100,11 +102,13 @@ python scheduler.py
 - El stock infinito en Tiendanube (null) se convierte a 999 en Shopify
 - Cada tienda mantiene sus propias estadísticas y registro de errores
 - El sistema es tolerante a fallos: si una tienda falla, continúa con las demás
+- Solo se procesan productos actualizados en los últimos 15 minutos para optimizar recursos
 
 ## Logs y Monitoreo
 
 El sistema proporciona información detallada durante la sincronización:
 - Número de productos encontrados por tienda
+- Timestamp de la última actualización considerada
 - Estado de sincronización de cada producto
 - Conversiones de stock infinito
 - Estadísticas globales y por tienda

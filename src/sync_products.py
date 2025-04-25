@@ -44,8 +44,8 @@ def sync_store(store_config: dict, shopify: ShopifyAPI) -> int:
         int: Número de productos sincronizados
     """
     try:
-        print(f"\n📦 Procesando tienda")
-        print(f"🔹 URL: {store_config['api_url']}")
+        print(f"\n Procesando tienda")
+        print(f" URL: {store_config['api_url']}")
         
         # Inicializar API de Tiendanube para esta tienda
         tiendanube = TiendanubeAPI(
@@ -54,21 +54,31 @@ def sync_store(store_config: dict, shopify: ShopifyAPI) -> int:
             user_agent=store_config['user_agent']
         )
         
-        # Obtener productos
-        print("\n🔍 Obteniendo productos de Tiendanube...")
+        # Obtener productos modificados recientemente
+        print(f"\n🔍 Buscando productos modificados recientemente...")
         productos = tiendanube.get_products()
-        print(f"✅ {len(productos)} productos encontrados")
+        
+        if not productos:
+            print(f"ℹ️ No se encontraron productos modificados recientemente")
+            return 0
+            
+        print(f"✅ Se encontraron {len(productos)} productos modificados")
         
         productos_sincronizados = 0
         
         # Procesar cada producto
         for producto in productos:
             try:
+                print(f"\n📦 Procesando producto:")
+                print(f"   ID: {producto.get('id')}")
+                print(f"   Nombre: {producto.get('name')}")
+                print(f"   Última actualización: {producto.get('updated_at')}")
+                
                 # Procesar stock y SKUs
                 producto = process_product_stock(producto)
                 
                 # Sincronizar con Shopify
-                print(f"\n🔄 Sincronizando producto {producto['id']}...")
+                print(f"🔄 Sincronizando producto {producto['id']}...")
                 if shopify.sync_products_from_tiendanube(producto):
                     productos_sincronizados += 1
                     print(f"✅ Producto sincronizado correctamente")
